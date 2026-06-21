@@ -1415,5 +1415,14 @@ config DRM_PANEL_XINPENG_XPP055C272
 	  Say Y here if you want to enable support for the Xinpeng
 	  XPP055C272 controller for 720x1280 LCD panels with MIPI/RGB/SPI
 	  system interfaces.
+config DRM_PANEL_ZTE_BLADE_S6_TD4291_JDI
+	tristate "ZTE Blade S6 TD4291 JDI 720p DSI panel"
+	depends on OF
+	depends on DRM_MIPI_DSI
+	depends on BACKLIGHT_CLASS_DEVICE
+	help
+	  Panel driver for the JDI TD4291 720x1280 video-mode DSI panel used
+	  on the ZTE Blade S6 (P839F30).
+
 source "drivers/gpu/drm/panel/msm8916-generated/Kconfig"
 endmenu

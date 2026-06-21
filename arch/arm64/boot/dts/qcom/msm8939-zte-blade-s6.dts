@@ -27,13 +27,6 @@
 		stdout-path = "serial0";
 	};
 
-	/*
-	 * ramoops: mirror the kernel console to a persistent RAM region so an early
-	 * hang/panic (which never reaches initramfs or UART) can be read back from
-	 * TWRP afterwards. DRAM survives the PS_HOLD warm reset. Region matches the
-	 * target reference DTS; well clear of kernel (0x80080000) / ramdisk
-	 * (0x82000000). Read after a hang: /sys/fs/pstore, or dd /dev/mem @ 0xbfe00000.
-	 */
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;

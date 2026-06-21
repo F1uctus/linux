@@ -167,6 +167,8 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	fbi->fix.smem_start = paddr;
 	fbi->fix.smem_len = bo->size;
 
+	fbi->flags |= FBINFO_VIRTFB;
+
 	DBG("par=%p, %dx%d", fbi->par, fbi->var.xres, fbi->var.yres);
 	DBG("allocated %dx%d fb", buffer->fb->width, buffer->fb->height);
 

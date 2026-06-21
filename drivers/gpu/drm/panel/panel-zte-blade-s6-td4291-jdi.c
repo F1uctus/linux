@@ -40,7 +40,7 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xde);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xde, 0x00);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb4, 0x32);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb3, 0x70);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x7c);
@@ -48,14 +48,14 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd6, 0x77);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd7, 0x76);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd8, 0x13);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x2c);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
-	mipi_dsi_dcs_set_display_brightness_multi(&dsi_ctx, 0x0000);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0xff);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_CABC_MIN_BRIGHTNESS, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_POWER_SAVE, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_POWER_SAVE, 0x01);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);
@@ -144,11 +144,12 @@ static const struct drm_panel_funcs zte_blade_s6_td4291_panel_funcs = {
 static int zte_blade_s6_td4291_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
-	u16 brightness = backlight_get_brightness(bl);
+	u8 brightness = backlight_get_brightness(bl);
 	int ret;
 
 	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-	ret = mipi_dsi_dcs_set_display_brightness(dsi, brightness);
+	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				 &brightness, 1);
 	if (ret < 0)
 		return ret;
 	dsi->mode_flags |= MIPI_DSI_MODE_LPM;

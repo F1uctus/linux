@@ -48,13 +48,13 @@
 		};
 	};
 
-	/* Panel power enables from downstream qcom,platform-*-gpio */
-	/* Panel regulators: enable when DRM is brought up (see PROGRESS.md). */
 	reg_lcd_vddio: regulator-lcd-vddio {
 		compatible = "regulator-fixed";
 		regulator-name = "lcd_vddio";
 		gpio = <&tlmm 16 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	reg_lcd_vdddc: regulator-lcd-vdddc {
@@ -62,6 +62,8 @@
 		regulator-name = "lcd_vdddc";
 		gpio = <&tlmm 112 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	reg_lcd_bl_en: regulator-lcd-bl-en {
@@ -69,6 +71,8 @@
 		regulator-name = "lcd_bl_en";
 		gpio = <&tlmm 98 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	gpio-keys {
@@ -102,19 +106,17 @@
 	status = "okay";
 };
 
-/*
- * Display stack enabled to match all other mainline msm8916/8939 devices.
- * gcc references the DSI PHY PLL as clock inputs (dsi0pll/dsi0pllbyte); the PHY
- * driver lives in msm_drm, so the display stack must be enabled (and msm_drm not
- * blacklisted) for those clocks to register. Disabling it was unique to this
- * device and is the suspected early-boot blocker. No &gcc clocks override needed.
- */
 &gpu {
 	status = "okay";
 };
 
 &mdss {
 	status = "okay";
+};
+
+&mdss_mdp {
+	interconnects = <&snoc_mm MASTER_MDP_PORT0 &bimc SLAVE_EBI_CH0>;
+	interconnect-names = "mdp0-mem";
 };
 
 &mdss_dsi0 {
@@ -168,13 +170,16 @@
 	extcon = <&usb_id>;
 };
 
-/* WiFi (WCNSS) disabled until mainline boot is stable */
 &wcnss {
-	status = "disabled";
+	status = "okay";
+};
+
+&wcnss_iris {
+	compatible = "qcom,wcn3660b";
 };
 
 &wcnss_mem {
-	status = "disabled";
+	status = "okay";
 };
 
 &tlmm {

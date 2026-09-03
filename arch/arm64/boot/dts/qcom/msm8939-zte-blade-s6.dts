@@ -7,6 +7,7 @@
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
 / {
 	model = "ZTE Blade S6";
@@ -92,10 +93,57 @@
 		pinctrl-0 = <&usb_id_default>;
 		pinctrl-names = "default";
 	};
+
+	cpu_little_opp_table: opp-table-cpu-little {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-200000000 { opp-hz = /bits/ 64 <200000000>; };
+		opp-400000000 { opp-hz = /bits/ 64 <400000000>; };
+		opp-800000000 { opp-hz = /bits/ 64 <800000000>; };
+		opp-998400000 { opp-hz = /bits/ 64 <998400000>; };
+	};
+
+	cpu_big_opp_table: opp-table-cpu-big {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-200000000  { opp-hz = /bits/ 64 <200000000>;  opp-microvolt = <1150000>; };
+		opp-400000000  { opp-hz = /bits/ 64 <400000000>;  opp-microvolt = <1150000>; };
+		opp-800000000  { opp-hz = /bits/ 64 <800000000>;  opp-microvolt = <1150000>; };
+		opp-998400000  { opp-hz = /bits/ 64 <998400000>;  opp-microvolt = <1150000>; };
+		opp-1094400000 { opp-hz = /bits/ 64 <1094400000>; opp-microvolt = <1150000>; };
+		opp-1209600000 { opp-hz = /bits/ 64 <1209600000>; opp-microvolt = <1350000>; };
+		opp-1401600000 { opp-hz = /bits/ 64 <1401600000>; opp-microvolt = <1350000>; };
+	};
 };
+
+&cpu0 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu1 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu2 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu3 { operating-points-v2 = <&cpu_little_opp_table>; };
+
+&cpu4 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu5 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu6 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu7 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
 
 &blsp_uart2 {
 	status = "okay";
+};
+
+&blsp_i2c4 {
+	status = "okay";
+
+	vdd_apc: regulator@1c {
+		compatible = "onnn,ncp6335d";
+		reg = <0x1c>;
+		regulator-name = "vdd_apc";
+		regulator-min-microvolt = <1150000>;
+		regulator-max-microvolt = <1350000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
 };
 
 &gpu {
@@ -209,4 +257,5 @@
 		drive-strength = <2>;
 		bias-pull-down;
 	};
+
 };

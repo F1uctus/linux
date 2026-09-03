@@ -266,8 +266,9 @@ static int rmi_i2c_probe(struct i2c_client *client)
 	 */
 	error = rmi_set_page(rmi_i2c, 0);
 	if (error) {
-		dev_err(&client->dev, "Failed to set page select to 0\n");
-		return error;
+		/* a TDDI is held off until the shared panel powers on */
+		dev_dbg(&client->dev, "not responding yet, deferring\n");
+		return -EPROBE_DEFER;
 	}
 
 	dev_info(&client->dev, "registering I2C-connected sensor\n");

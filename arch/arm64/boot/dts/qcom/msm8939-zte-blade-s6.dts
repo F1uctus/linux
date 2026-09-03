@@ -4,9 +4,11 @@
 /dts-v1/;
 
 #include "msm8939-pm8916.dtsi"
+#include "msm8916-modem-qdsp6.dtsi"
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
 
 / {
 	model = "ZTE Blade S6";
@@ -93,10 +95,111 @@
 		pinctrl-0 = <&usb_id_default>;
 		pinctrl-names = "default";
 	};
+
+	/* 200/400/800 MHz are GPLL0-derived; 998.4 MHz and up are a53pll rates */
+	cpu_little_opp_table: opp-table-cpu-little {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		opp-200000000 { opp-hz = /bits/ 64 <200000000>; };
+		opp-400000000 { opp-hz = /bits/ 64 <400000000>; };
+		opp-800000000 { opp-hz = /bits/ 64 <800000000>; };
+		opp-998400000 { opp-hz = /bits/ 64 <998400000>; };
+	};
+
+	cpu_big_opp_table: opp-table-cpu-big {
+		compatible = "operating-points-v2";
+		opp-shared;
+
+		/* opp-microvolt = the downstream CPR open-loop corner: 1.15 V Nominal, 1.35 V Turbo */
+		opp-200000000  { opp-hz = /bits/ 64 <200000000>;  opp-microvolt = <1150000>; };
+		opp-400000000  { opp-hz = /bits/ 64 <400000000>;  opp-microvolt = <1150000>; };
+		opp-800000000  { opp-hz = /bits/ 64 <800000000>;  opp-microvolt = <1150000>; };
+		opp-998400000  { opp-hz = /bits/ 64 <998400000>;  opp-microvolt = <1150000>; };
+		opp-1094400000 { opp-hz = /bits/ 64 <1094400000>; opp-microvolt = <1150000>; };
+		opp-1209600000 { opp-hz = /bits/ 64 <1209600000>; opp-microvolt = <1350000>; };
+		opp-1401600000 { opp-hz = /bits/ 64 <1401600000>; opp-microvolt = <1350000>; };
+	};
 };
+
+/* LITTLE cluster: apcs1 / a53pll_c1 */
+&cpu0 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu1 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu2 { operating-points-v2 = <&cpu_little_opp_table>; };
+&cpu3 { operating-points-v2 = <&cpu_little_opp_table>; };
+
+/* big cluster: apcs0 / a53pll_c0; cpu-supply scales VDD_APC with frequency */
+&cpu4 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu5 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu6 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
+&cpu7 { operating-points-v2 = <&cpu_big_opp_table>; cpu-supply = <&vdd_apc>; };
 
 &blsp_uart2 {
 	status = "okay";
+};
+
+/* CyWee STM32 sensor hub: accel/gyro/magn/ALS/proximity behind an I2C MCU */
+&blsp_i2c2 {
+	status = "okay";
+
+	imu@3a {
+		compatible = "cwstm,cwstm32";
+		reg = <0x3a>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		interrupts-extended = <&tlmm 9 IRQ_TYPE_EDGE_RISING>;
+		reset-gpios = <&tlmm 20 GPIO_ACTIVE_HIGH>;
+		boot-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		wakeup-gpios = <&tlmm 120 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&cwstm_pins>;
+		pinctrl-names = "default";
+	};
+};
+
+/* External VDD_APC buck, shared by both clusters; floored at the 1.15 V Nominal corner */
+&blsp_i2c4 {
+	status = "okay";
+
+	vdd_apc: regulator@1c {
+		compatible = "onnn,ncp6335d";
+		reg = <0x1c>;
+		regulator-name = "vdd_apc";
+		regulator-min-microvolt = <1150000>;
+		regulator-max-microvolt = <1350000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+};
+
+/* Synaptics TD4291 TDDI; reset is the shared LCD reset gpio25, owned by panel@0 */
+&blsp_i2c5 {
+	status = "okay";
+
+	touchscreen@2c {
+		compatible = "syna,rmi4-i2c";
+		reg = <0x2c>;
+		interrupts-extended = <&tlmm 13 IRQ_TYPE_LEVEL_LOW>;
+		vdd-supply = <&reg_lcd_vdddc>;
+		vio-supply = <&reg_lcd_vddio>;
+		pinctrl-0 = <&ts_int_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		syna,startup-delay-ms = <100>;
+		syna,reset-delay-ms = <300>;
+
+		rmi4-f01@1 {
+			reg = <0x1>;
+			syna,nosleep-mode = <1>;
+		};
+
+		rmi4-f1a@1a {
+			reg = <0x1a>;
+			/* capacitive nav keys: Back, Home, Menu */
+			linux,keycodes = <KEY_BACK KEY_HOMEPAGE KEY_MENU>;
+		};
+	};
 };
 
 &gpu {
@@ -175,6 +278,20 @@
 	status = "okay";
 };
 
+/* device-specific size for the SoC's size-0 mpss_mem (0x5500000 = downstream modem_adsp) */
+&mpss_mem {
+	reg = <0x0 0x86800000 0x0 0x5500000>;
+};
+
+&sound {
+	/* "msm8916" so the generic msm8916 alsa-ucm-conf profile matches this card */
+	model = "msm8916";
+	audio-routing =
+		"AMIC1", "MIC BIAS External1",
+		"AMIC2", "MIC BIAS Internal2",
+		"AMIC3", "MIC BIAS External1";
+};
+
 &tlmm {
 	gpio_keys_default: gpio-keys-default-state {
 		pins = "gpio107", "gpio108";
@@ -209,5 +326,19 @@
 		function = "gpio";
 		drive-strength = <2>;
 		bias-pull-down;
+	};
+
+	cwstm_pins: cwstm-pins-state {
+		pins = "gpio8", "gpio9", "gpio20", "gpio120";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+	};
+
+	ts_int_default: ts-int-default-state {
+		pins = "gpio13";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
 	};
 };

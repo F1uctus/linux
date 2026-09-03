@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# CyWee CWSTM32 sensor hub
+#
+
+config IIO_CWSTM32
+	tristate "CyWee CWSTM32 sensor hub"
+	depends on I2C
+	help
+	  Say yes here to build support for the CyWee STM32 sensor hub found
+	  on the ZTE Blade S6, which aggregates accelerometer, gyroscope,
+	  magnetometer, ambient light and proximity sensors behind an I2C
+	  register protocol and exposes them as IIO channels.

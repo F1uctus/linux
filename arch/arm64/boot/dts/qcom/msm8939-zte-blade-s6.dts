@@ -163,6 +163,36 @@
 	};
 };
 
+&blsp_i2c5 {
+	status = "okay";
+
+	touchscreen@2c {
+		compatible = "syna,rmi4-i2c";
+		reg = <0x2c>;
+		interrupts-extended = <&tlmm 13 IRQ_TYPE_LEVEL_LOW>;
+		vdd-supply = <&reg_lcd_vdddc>;
+		vio-supply = <&reg_lcd_vddio>;
+		pinctrl-0 = <&ts_int_default>;
+		pinctrl-names = "default";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		syna,startup-delay-ms = <100>;
+		syna,reset-delay-ms = <300>;
+
+		rmi4-f01@1 {
+			reg = <0x1>;
+			syna,nosleep-mode = <1>;
+		};
+
+		rmi4-f1a@1a {
+			reg = <0x1a>;
+
+			linux,keycodes = <KEY_BACK KEY_HOMEPAGE KEY_MENU>;
+		};
+	};
+};
+
 &gpu {
 	status = "okay";
 };
@@ -282,6 +312,12 @@
 		bias-disable;
 	};
 
+	ts_int_default: ts-int-default-state {
+		pins = "gpio13";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
 };
 
 &pm8916_rpm_regulators {

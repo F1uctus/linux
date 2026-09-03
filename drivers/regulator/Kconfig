@@ -430,6 +430,16 @@ config REGULATOR_FAN53555
 	  input voltage supply of 2.5V to 5.5V. The output voltage is
 	  programmed through an I2C interface.
 
+config REGULATOR_NCP6335D
+	tristate "ON Semiconductor NCP6335D Regulator"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  This driver supports the ON Semiconductor NCP6335D I2C step-down
+	  regulator. On some MSM8939 boards it supplies the CPU VDD_APC rail
+	  and must be driven directly to reach the higher voltage corners,
+	  since mainline has no CPR support for that SoC.
+
 config REGULATOR_FAN53880
 	tristate "Fairchild FAN53880 Regulator"
 	depends on I2C && OF

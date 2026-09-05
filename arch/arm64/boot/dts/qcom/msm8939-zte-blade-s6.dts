@@ -8,6 +8,7 @@
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/leds/common.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 
 / {
@@ -68,6 +69,15 @@
 		enable-active-high;
 		regulator-always-on;
 		regulator-boot-on;
+	};
+
+	reg_headphones_avdd: regulator-headphones-avdd {
+		compatible = "regulator-fixed";
+		regulator-name = "headphones_avdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 21 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
 	};
 
 	gpio-keys {
@@ -142,6 +152,37 @@
 &blsp_i2c2 {
 	status = "okay";
 
+	led-controller@45 {
+		compatible = "awinic,aw2013";
+		reg = <0x45>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		vcc-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+
+		led@0 {
+			reg = <0>;
+			led-max-microamp = <5000>;
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_RED>;
+		};
+
+		led@1 {
+			reg = <1>;
+			led-max-microamp = <5000>;
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_GREEN>;
+		};
+
+		led@2 {
+			reg = <2>;
+			led-max-microamp = <5000>;
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_BLUE>;
+		};
+	};
+
 	imu@3a {
 		compatible = "cwstm,cwstm32";
 		reg = <0x3a>;
@@ -153,6 +194,24 @@
 		wakeup-gpios = <&tlmm 120 GPIO_ACTIVE_HIGH>;
 		pinctrl-0 = <&cwstm_pins>;
 		pinctrl-names = "default";
+	};
+};
+
+&blsp_i2c3 {
+	status = "okay";
+
+	headphones: audio-codec@10 {
+		compatible = "asahi-kasei,ak4375";
+		reg = <0x10>;
+
+		avdd-supply = <&reg_headphones_avdd>;
+		tvdd-supply = <&pm8916_l6>;
+		pdn-gpios = <&tlmm 121 GPIO_ACTIVE_HIGH>;
+
+		pinctrl-0 = <&headphones_pdn_default>;
+		pinctrl-names = "default";
+
+		#sound-dai-cells = <0>;
 	};
 };
 
@@ -274,6 +333,17 @@
 	status = "okay";
 };
 
+&pm8916_rpm_regulators {
+	pm8916_l17: l17 {
+		regulator-min-microvolt = <2850000>;
+		regulator-max-microvolt = <2850000>;
+	};
+};
+
+&pm8916_vib {
+	status = "okay";
+};
+
 &sdhc_1 {
 	status = "okay";
 };
@@ -363,6 +433,15 @@
 		function = "gpio";
 		drive-strength = <2>;
 		bias-pull-down;
+	};
+
+	headphones_pdn_default: headphones-pdn-default-state {
+		pins = "gpio121";
+		function = "gpio";
+
+		drive-strength = <16>;
+		bias-disable;
+		output-low;
 	};
 
 	cwstm_pins: cwstm-pins-state {

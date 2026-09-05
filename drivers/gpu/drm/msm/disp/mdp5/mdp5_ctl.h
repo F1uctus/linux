@@ -62,6 +62,7 @@ int mdp5_ctl_blend(struct mdp5_ctl *ctl, struct mdp5_pipeline *pipeline,
  * through @flush_mask parameter in mdp5_ctl_commit(.., flush_mask).
  */
 u32 mdp_ctl_flush_mask_lm(int lm);
+u32 mdp_ctl_flush_mask_dspp(int dspp);
 u32 mdp_ctl_flush_mask_pipe(enum mdp5_pipe pipe);
 u32 mdp_ctl_flush_mask_cursor(int cursor_id);
 u32 mdp_ctl_flush_mask_encoder(struct mdp5_interface *intf);

@@ -147,12 +147,18 @@ static int zte_blade_s6_td4291_bl_update_status(struct backlight_device *bl)
 	u8 brightness = backlight_get_brightness(bl);
 	int ret;
 
+	/* downstream floors the DCS level at 10 of 205; below that the panel
+	 * driver misbehaves rather than dimming further */
+	if (brightness > 0 && brightness < 10)
+		brightness = 10;
+
+	/* HS: an LP command drops the link out of video streaming and tears */
 	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				 &brightness, 1);
+	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	if (ret < 0)
 		return ret;
-	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
 	return 0;
 }

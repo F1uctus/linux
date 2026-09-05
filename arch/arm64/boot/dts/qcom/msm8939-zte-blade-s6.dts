@@ -160,6 +160,36 @@
 &blsp_i2c4 {
 	status = "okay";
 
+	charger: battery@14 {
+		compatible = "qcom,smb1360";
+		reg = <0x14>;
+
+		interrupts-extended = <&tlmm 62 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-0 = <&smb_int_default>;
+		pinctrl-names = "default";
+
+		qcom,float-voltage-mv = <4350>;
+		qcom,iterm-ma = <125>;
+		qcom,charging-timeout = <1536>;
+		qcom,recharge-thresh-mv = <200>;
+		qcom,chg-inhibit-disabled;
+		qcom,shdn-after-pwroff;
+
+		qcom,fg-batt-capacity-mah = <2400>;
+		qcom,fg-cc-soc-coeff = <0x82d4>;
+		qcom,fg-cutoff-voltage-mv = <3500>;
+		qcom,fg-voltage-empty-mv = <3400>;
+		qcom,fg-iterm-ma = <150>;
+		qcom,fg-auto-recharge-soc = <99>;
+		qcom,thermistor-c1-coeff = <0x85ec>;
+
+		qcom,otp-hard-jeita-config;
+		qcom,otp-hot-bat-decidegc = <590>;
+		qcom,otp-cold-bat-decidegc = <10>;
+		qcom,warm-bat-decidegc = <450>;
+		qcom,cool-bat-decidegc = <100>;
+	};
+
 	vdd_apc: regulator@1c {
 		compatible = "onnn,ncp6335d";
 		reg = <0x1c>;
@@ -293,6 +323,13 @@
 };
 
 &tlmm {
+	smb_int_default: smb-int-default-state {
+		pins = "gpio62";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
 	gpio_keys_default: gpio-keys-default-state {
 		pins = "gpio107", "gpio108";
 		function = "gpio";

@@ -8,7 +8,9 @@
 #include <linux/sort.h>
 
 #include <drm/drm_atomic.h>
+#include <drm/drm_atomic_helper.h>
 #include <drm/drm_blend.h>
+#include <drm/drm_color_mgmt.h>
 #include <drm/drm_mode.h>
 #include <drm/drm_crtc.h>
 #include <drm/drm_flip_work.h>
@@ -22,6 +24,17 @@
 
 #define CURSOR_WIDTH	64
 #define CURSOR_HEIGHT	64
+
+/* S31.32 drm_color_ctm entry -> the DSPP's 18-bit S3.15 magnitude */
+#define CONVERT_S3_15(val) \
+	(((((u64)val) & ~BIT_ULL(63)) >> 17) & GENMASK_ULL(17, 0))
+
+/* PCC polynomial term groups, 3 registers each, from REG_MDP5_DSPP_PCC_BASE */
+#define PCC_NUM_TERMS		12
+#define PCC_TERM_STRIDE		0x10
+/* c, then the linear R/G/B terms; the 8 higher-order terms follow */
+#define PCC_TERM_C		0
+#define PCC_TERM_LINEAR		1
 
 struct mdp5_crtc {
 	struct drm_crtc base;
@@ -126,6 +139,9 @@ static u32 crtc_flush_all(struct drm_crtc *crtc)
 
 	mixer = mdp5_cstate->pipeline.mixer;
 	flush_mask |= mdp_ctl_flush_mask_lm(mixer->lm);
+	if (mixer->dspp >= 0 &&
+	    (crtc->state->ctm || crtc->state->color_mgmt_changed))
+		flush_mask |= mdp_ctl_flush_mask_dspp(mixer->dspp);
 
 	r_mixer = mdp5_cstate->pipeline.r_mixer;
 	if (r_mixer)
@@ -792,6 +808,48 @@ static void mdp5_crtc_atomic_begin(struct drm_crtc *crtc,
 	DBG("%s: begin", crtc->name);
 }
 
+static void mdp5_crtc_setup_pcc(struct drm_crtc *crtc)
+{
+	struct drm_crtc_state *state = crtc->state;
+	struct mdp5_crtc_state *mdp5_cstate = to_mdp5_crtc_state(state);
+	struct mdp5_kms *mdp5_kms = get_kms(crtc);
+	int dspp = mdp5_cstate->pipeline.mixer->dspp;
+	struct drm_color_ctm *ctm;
+	u32 base, op_mode;
+	int i, j;
+
+	if (dspp < 0)
+		return;
+
+	if (!state->color_mgmt_changed && !drm_atomic_crtc_needs_modeset(state))
+		return;
+
+	op_mode = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp));
+
+	if (!state->ctm) {
+		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp),
+			   op_mode & ~MDP5_DSPP_OP_MODE_PCC_EN);
+		return;
+	}
+
+	ctm = (struct drm_color_ctm *)state->ctm->data;
+	base = REG_MDP5_DSPP_PCC_BASE(dspp);
+
+	for (i = 0; i < PCC_NUM_TERMS; i++) {
+		for (j = 0; j < 3; j++) {
+			u32 val = 0;
+
+			if (i >= PCC_TERM_LINEAR && i < PCC_TERM_LINEAR + 3)
+				val = CONVERT_S3_15(ctm->matrix[(i - PCC_TERM_LINEAR) * 3 + j]);
+
+			mdp5_write(mdp5_kms, base + i * PCC_TERM_STRIDE + j * 4, val);
+		}
+	}
+
+	mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp),
+		   op_mode | MDP5_DSPP_OP_MODE_PCC_EN);
+}
+
 static void mdp5_crtc_atomic_flush(struct drm_crtc *crtc,
 				   struct drm_atomic_commit *state)
 {
@@ -819,6 +877,7 @@ static void mdp5_crtc_atomic_flush(struct drm_crtc *crtc,
 		return;
 
 	blend_setup(crtc);
+	mdp5_crtc_setup_pcc(crtc);
 
 	/* PP_DONE irq is only used by command mode for now.
 	 * It is better to request pending before FLUSH and START trigger
@@ -1354,6 +1413,9 @@ struct drm_crtc *mdp5_crtc_init(struct drm_device *dev,
 		return ERR_PTR(ret);
 
 	drm_crtc_helper_add(crtc, &mdp5_crtc_helper_funcs);
+
+	if (mdp5_cfg_get_hw_config(get_kms(crtc)->cfg)->dspp.count)
+		drm_crtc_enable_color_mgmt(crtc, 0, true, 0);
 
 	return crtc;
 }

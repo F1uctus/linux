@@ -7,6 +7,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/workqueue.h>
 
 #include <video/mipi_display.h>
 
@@ -19,6 +20,9 @@ struct zte_blade_s6_td4291 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
 	struct gpio_desc *reset_gpio;
+
+	struct work_struct bl_work;
+	atomic_t bl_pending;	/* latest level, -1 when nothing queued */
 };
 
 static inline struct zte_blade_s6_td4291 *to_zte_blade_s6_td4291(struct drm_panel *panel)
@@ -49,9 +53,9 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd7, 0x76);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd8, 0x13);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf, 0x00);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x2c);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0xff);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_CABC_MIN_BRIGHTNESS, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
@@ -141,24 +145,52 @@ static const struct drm_panel_funcs zte_blade_s6_td4291_panel_funcs = {
 	.get_modes = zte_blade_s6_td4291_get_modes,
 };
 
+static int bl_mode;
+module_param(bl_mode, int, 0644);
+MODULE_PARM_DESC(bl_mode, "brightness DCS: 0=HS, 1=LP, 2=skip");
+
+/* The DSI controller defers a command to the next frame boundary, so each DCS
+ * write blocks for a whole frame while video streams. Coalesce updates onto a
+ * work item: a slider drag then costs one write, not one per step.
+ */
+static void zte_blade_s6_td4291_bl_work(struct work_struct *work)
+{
+	struct zte_blade_s6_td4291 *ctx =
+		container_of(work, struct zte_blade_s6_td4291, bl_work);
+	struct mipi_dsi_device *dsi = ctx->dsi;
+	int level;
+
+	while ((level = atomic_xchg(&ctx->bl_pending, -1)) >= 0) {
+		u8 brightness = level;
+
+		/* 0 = HS, 1 = LP, 2 = drop the write entirely */
+		if (bl_mode == 2)
+			continue;
+
+		if (bl_mode == 1)
+			dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+		else
+			dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
+
+		mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+				   &brightness, 1);
+		dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+	}
+}
+
 static int zte_blade_s6_td4291_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
+	struct zte_blade_s6_td4291 *ctx = mipi_dsi_get_drvdata(dsi);
 	u8 brightness = backlight_get_brightness(bl);
-	int ret;
 
 	/* downstream floors the DCS level at 10 of 205; below that the panel
 	 * driver misbehaves rather than dimming further */
 	if (brightness > 0 && brightness < 10)
 		brightness = 10;
 
-	/* HS: an LP command drops the link out of video streaming and tears */
-	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-	ret = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				 &brightness, 1);
-	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
-	if (ret < 0)
-		return ret;
+	atomic_set(&ctx->bl_pending, brightness);
+	schedule_work(&ctx->bl_work);
 
 	return 0;
 }
@@ -201,6 +233,9 @@ static int zte_blade_s6_td4291_probe(struct mipi_dsi_device *dsi)
 	ctx->dsi = dsi;
 	mipi_dsi_set_drvdata(dsi, ctx);
 
+	INIT_WORK(&ctx->bl_work, zte_blade_s6_td4291_bl_work);
+	atomic_set(&ctx->bl_pending, -1);
+
 	dsi->lanes = 4;
 	dsi->format = MIPI_DSI_FMT_RGB888;
 	dsi->mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST |
@@ -229,6 +264,8 @@ static void zte_blade_s6_td4291_remove(struct mipi_dsi_device *dsi)
 {
 	struct zte_blade_s6_td4291 *ctx = mipi_dsi_get_drvdata(dsi);
 	int ret;
+
+	cancel_work_sync(&ctx->bl_work);
 
 	ret = mipi_dsi_detach(dsi);
 	if (ret < 0)

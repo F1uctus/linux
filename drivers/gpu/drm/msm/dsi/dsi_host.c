@@ -1211,6 +1211,10 @@ static void dsi_wait4video_done(struct msm_dsi_host *msm_host)
 	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_VIDEO_DONE, 0);
 }
 
+static int vid_cmd_wait;
+module_param(vid_cmd_wait, int, 0644);
+MODULE_PARM_DESC(vid_cmd_wait, "video-mode cmd sync: 0=wait+delay, 1=wait only, 2=none");
+
 static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
 {
 	u32 data;
@@ -1229,9 +1233,12 @@ static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
 		return;
 
 	if (msm_host->power_on && msm_host->enabled) {
+		/* 0 = upstream (wait + 2-4ms), 1 = wait only, 2 = neither */
+		if (vid_cmd_wait == 2)
+			return;
 		dsi_wait4video_done(msm_host);
-		/* delay 4 ms to skip BLLP */
-		usleep_range(2000, 4000);
+		if (vid_cmd_wait == 0)
+			usleep_range(2000, 4000);
 	}
 }
 

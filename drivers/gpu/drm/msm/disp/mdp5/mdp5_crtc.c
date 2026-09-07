@@ -32,9 +32,22 @@
 /* PCC polynomial term groups, 3 registers each, from REG_MDP5_DSPP_PCC_BASE */
 #define PCC_NUM_TERMS		12
 #define PCC_TERM_STRIDE		0x10
-/* c, then the linear R/G/B terms; the 8 higher-order terms follow */
-#define PCC_TERM_C		0
+/* group 0 is the constant term, 1..3 the linear R/G/B terms */
 #define PCC_TERM_LINEAR		1
+
+/* DSPP gamma correction: a 16-segment piecewise-linear transfer function.
+ * x_start is 12-bit, slope is Q12, offset is U8.7, and the hardware evaluates
+ * out = offset + ((x - x_start) * slope) >> GC_SLOPE_SHIFT.
+ */
+#define GC_LUT_SEGMENTS		16
+#define GC_INPUT_MAX		4095
+#define GC_OUTPUT_MAX		32640	/* 255.0 in U8.7 */
+#define GC_SLOPE_SHIFT		5
+#define GC_CHANNEL_STRIDE	0x10
+#define GC_IDX_SHIFT		16
+#define GC_IDX_MASK		0xf
+/* not in mdp5.xml; from downstream MDSS_MDP_DSPP_OP_ARGC_LUT_EN */
+#define MDP5_DSPP_OP_MODE_ARGC_LUT_EN	BIT(22)
 
 struct mdp5_crtc {
 	struct drm_crtc base;
@@ -140,7 +153,8 @@ static u32 crtc_flush_all(struct drm_crtc *crtc)
 	mixer = mdp5_cstate->pipeline.mixer;
 	flush_mask |= mdp_ctl_flush_mask_lm(mixer->lm);
 	if (mixer->dspp >= 0 &&
-	    (crtc->state->ctm || crtc->state->color_mgmt_changed))
+	    (crtc->state->ctm || crtc->state->gamma_lut ||
+	     crtc->state->color_mgmt_changed))
 		flush_mask |= mdp_ctl_flush_mask_dspp(mixer->dspp);
 
 	r_mixer = mdp5_cstate->pipeline.r_mixer;
@@ -808,6 +822,99 @@ static void mdp5_crtc_atomic_begin(struct drm_crtc *crtc,
 	DBG("%s: begin", crtc->name);
 }
 
+static u32 mdp5_gc_out(u16 val)
+{
+	return min_t(u32, GC_OUTPUT_MAX, mult_frac(val, GC_OUTPUT_MAX, U16_MAX));
+}
+
+/* Each field is one auto-incrementing indexed register; the current index
+ * reads back in GC_IDX_MASK, so write all segments starting from index + 1.
+ */
+static void mdp5_crtc_write_gc_channel(struct mdp5_kms *mdp5_kms, u32 base,
+				       const u32 *x_start, const u32 *slope,
+				       const u32 *offset)
+{
+	const u32 *field[3] = { x_start, slope, offset };
+	int f, i, seg;
+	u32 reg, idx;
+
+	for (f = 0; f < 3; f++) {
+		reg = base + f * 4;
+		idx = (mdp5_read(mdp5_kms, reg) >> GC_IDX_SHIFT) & GC_IDX_MASK;
+
+		for (i = 0; i < GC_LUT_SEGMENTS; i++) {
+			seg = (idx + 1 + i) % GC_LUT_SEGMENTS;
+			mdp5_write(mdp5_kms, reg, field[f][seg]);
+		}
+	}
+}
+
+static void mdp5_crtc_setup_gc(struct drm_crtc *crtc)
+{
+	struct drm_crtc_state *state = crtc->state;
+	struct mdp5_crtc_state *mdp5_cstate = to_mdp5_crtc_state(state);
+	struct mdp5_kms *mdp5_kms = get_kms(crtc);
+	int dspp = mdp5_cstate->pipeline.mixer->dspp;
+	u32 x_start[GC_LUT_SEGMENTS], offset[3][GC_LUT_SEGMENTS];
+	u32 slope[3][GC_LUT_SEGMENTS];
+	struct drm_color_lut *lut;
+	u32 base, op_mode;
+	int i, c;
+
+	if (dspp < 0)
+		return;
+
+	op_mode = mdp5_read(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp));
+
+	if (!state->gamma_lut) {
+		mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp),
+			   op_mode & ~MDP5_DSPP_OP_MODE_ARGC_LUT_EN);
+		return;
+	}
+
+	lut = (struct drm_color_lut *)state->gamma_lut->data;
+
+	for (i = 0; i < GC_LUT_SEGMENTS; i++) {
+		u32 out[3], next[3];
+		u32 dx;
+
+		x_start[i] = mult_frac(i, GC_INPUT_MAX, GC_LUT_SEGMENTS - 1);
+
+		out[0] = mdp5_gc_out(lut[i].red);
+		out[1] = mdp5_gc_out(lut[i].green);
+		out[2] = mdp5_gc_out(lut[i].blue);
+
+		/* the final segment carries no ramp, only the clamp value */
+		if (i == GC_LUT_SEGMENTS - 1) {
+			for (c = 0; c < 3; c++) {
+				offset[c][i] = out[c];
+				slope[c][i] = 0;
+			}
+			x_start[i] = GC_INPUT_MAX;
+			break;
+		}
+
+		dx = mult_frac(i + 1, GC_INPUT_MAX, GC_LUT_SEGMENTS - 1) - x_start[i];
+		next[0] = mdp5_gc_out(lut[i + 1].red);
+		next[1] = mdp5_gc_out(lut[i + 1].green);
+		next[2] = mdp5_gc_out(lut[i + 1].blue);
+
+		for (c = 0; c < 3; c++) {
+			offset[c][i] = out[c];
+			slope[c][i] = dx ? min_t(u32, 0x7fff,
+				((next[c] - min(next[c], out[c])) << GC_SLOPE_SHIFT) / dx) : 0;
+		}
+	}
+
+	base = REG_MDP5_DSPP_GC_BASE(dspp);
+	for (c = 0; c < 3; c++)
+		mdp5_crtc_write_gc_channel(mdp5_kms, base + c * GC_CHANNEL_STRIDE,
+					   x_start, slope[c], offset[c]);
+
+	mdp5_write(mdp5_kms, REG_MDP5_DSPP_OP_MODE(dspp),
+		   op_mode | MDP5_DSPP_OP_MODE_ARGC_LUT_EN);
+}
+
 static void mdp5_crtc_setup_pcc(struct drm_crtc *crtc)
 {
 	struct drm_crtc_state *state = crtc->state;
@@ -878,6 +985,7 @@ static void mdp5_crtc_atomic_flush(struct drm_crtc *crtc,
 
 	blend_setup(crtc);
 	mdp5_crtc_setup_pcc(crtc);
+	mdp5_crtc_setup_gc(crtc);
 
 	/* PP_DONE irq is only used by command mode for now.
 	 * It is better to request pending before FLUSH and START trigger
@@ -1415,7 +1523,7 @@ struct drm_crtc *mdp5_crtc_init(struct drm_device *dev,
 	drm_crtc_helper_add(crtc, &mdp5_crtc_helper_funcs);
 
 	if (mdp5_cfg_get_hw_config(get_kms(crtc)->cfg)->dspp.count)
-		drm_crtc_enable_color_mgmt(crtc, 0, true, 0);
+		drm_crtc_enable_color_mgmt(crtc, 0, true, GC_LUT_SEGMENTS);
 
 	return crtc;
 }

@@ -164,6 +164,10 @@ static int read_reg_set(const char *val, const struct kernel_param *kp)
 		return -ENODEV;
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+	/* a peripheral returns nothing until told how much it may send */
+	ret = mipi_dsi_set_maximum_return_packet_size(ctx->dsi, sizeof(buf));
+	if (ret < 0)
+		dev_info(&ctx->dsi->dev, "set max return packet size: %d\n", ret);
 	ret = mipi_dsi_dcs_read(ctx->dsi, reg, buf, sizeof(buf));
 	if (ret < 0)
 		dev_info(&ctx->dsi->dev, "read 0x%02x: error %d\n", reg, ret);

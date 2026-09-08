@@ -44,7 +44,8 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 
 	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xde, 0x00);
+	/* 0x05 in the stock sequence: no parameter, unlike the writes it brackets */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xde);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb4, 0x32);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb3, 0x70);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x7c);
@@ -52,7 +53,7 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd6, 0x77);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd7, 0x76);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd8, 0x13);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf, 0x00);
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf);
 	/* BCTRL | BL: brightness block and backlight on, dimming ramp (DD) off */
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x24);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);

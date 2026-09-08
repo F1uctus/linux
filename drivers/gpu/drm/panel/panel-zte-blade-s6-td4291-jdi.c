@@ -147,6 +147,36 @@ static const struct drm_panel_funcs zte_blade_s6_td4291_panel_funcs = {
 	.get_modes = zte_blade_s6_td4291_get_modes,
 };
 
+static struct zte_blade_s6_td4291 *dbg_ctx;
+
+/* Read back a panel register over DCS: echo 0xb0 > .../parameters/read_reg */
+static int read_reg_set(const char *val, const struct kernel_param *kp)
+{
+	struct zte_blade_s6_td4291 *ctx = dbg_ctx;
+	u8 buf[4] = {};
+	unsigned int reg;
+	int ret;
+
+	ret = kstrtouint(val, 0, &reg);
+	if (ret)
+		return ret;
+	if (!ctx || reg > 0xff)
+		return -ENODEV;
+
+	ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+	ret = mipi_dsi_dcs_read(ctx->dsi, reg, buf, sizeof(buf));
+	if (ret < 0)
+		dev_info(&ctx->dsi->dev, "read 0x%02x: error %d\n", reg, ret);
+	else
+		dev_info(&ctx->dsi->dev, "read 0x%02x: %d bytes: %02x %02x %02x %02x\n",
+			 reg, ret, buf[0], buf[1], buf[2], buf[3]);
+	return 0;
+}
+
+static const struct kernel_param_ops read_reg_ops = { .set = read_reg_set };
+module_param_cb(read_reg, &read_reg_ops, NULL, 0200);
+MODULE_PARM_DESC(read_reg, "DCS-read a panel register and log the result");
+
 static int bl_mode;
 module_param(bl_mode, int, 0644);
 MODULE_PARM_DESC(bl_mode, "brightness DCS: 0=HS, 1=LP, 2=skip");
@@ -234,6 +264,7 @@ static int zte_blade_s6_td4291_probe(struct mipi_dsi_device *dsi)
 
 	ctx->dsi = dsi;
 	mipi_dsi_set_drvdata(dsi, ctx);
+	dbg_ctx = ctx;
 
 	INIT_WORK(&ctx->bl_work, zte_blade_s6_td4291_bl_work);
 	atomic_set(&ctx->bl_pending, -1);

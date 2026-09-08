@@ -53,7 +53,8 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd7, 0x76);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xd8, 0x13);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xdf, 0x00);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x00);
+	/* BCTRL | BL: brightness block and backlight on, dimming ramp (DD) off */
+	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x24);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_DISPLAY_BRIGHTNESS, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);

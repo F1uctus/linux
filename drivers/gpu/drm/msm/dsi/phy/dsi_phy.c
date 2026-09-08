@@ -49,6 +49,10 @@ static void dsi_dphy_timing_calc_clk_zero(struct msm_dsi_dphy_timing *timing,
 	timing->clk_zero = clk_z + 8 - temp;
 }
 
+static int clk_pre_adj;
+module_param(clk_pre_adj, int, 0644);
+MODULE_PARM_DESC(clk_pre_adj, "add to the computed DSI clk_pre (HS clock lead-in)");
+
 int msm_dsi_dphy_timing_calc(struct msm_dsi_dphy_timing *timing,
 			     struct msm_dsi_phy_clk_request *clk_req)
 {
@@ -133,6 +137,12 @@ int msm_dsi_dphy_timing_calc(struct msm_dsi_dphy_timing *timing,
 	timing->ta_go = 3;
 	timing->ta_sure = 0;
 	timing->ta_get = 4;
+
+	if (clk_pre_adj) {
+		int v = timing->shared_timings.clk_pre + clk_pre_adj;
+
+		timing->shared_timings.clk_pre = clamp(v, 0, 63);
+	}
 
 	DBG("PHY timings: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d",
 		timing->shared_timings.clk_pre, timing->shared_timings.clk_post,

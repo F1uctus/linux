@@ -26,6 +26,7 @@ struct zte_blade_s6_td4291 {
 	struct delayed_work on_work;
 	atomic_t bl_pending;	/* latest level, -1 when nothing queued */
 	struct mutex cmd_lock;
+	int bl_last;		/* last level sent over DSI, -1 when unknown */
 	bool enabled;
 };
 
@@ -108,6 +109,7 @@ static int zte_blade_s6_td4291_enable(struct drm_panel *panel)
 	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
 
 	mutex_lock(&ctx->cmd_lock);
+	ctx->bl_last = 0;
 	ctx->enabled = true;
 	mutex_unlock(&ctx->cmd_lock);
 
@@ -125,6 +127,7 @@ static int zte_blade_s6_td4291_disable(struct drm_panel *panel)
 	cancel_delayed_work_sync(&ctx->on_work);
 	mutex_lock(&ctx->cmd_lock);
 	ctx->enabled = false;
+	ctx->bl_last = -1;
 	mutex_unlock(&ctx->cmd_lock);
 	cancel_work_sync(&ctx->bl_work);
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
@@ -244,7 +247,9 @@ static void zte_blade_s6_td4291_bl_work(struct work_struct *work)
 		u8 brightness = level;
 
 		mutex_lock(&ctx->cmd_lock);
-		if (ctx->enabled && bl_mode != 2) {
+		if (ctx->enabled && bl_mode != 2 && level != ctx->bl_last) {
+			ctx->bl_last = level;
+
 			if (bl_mode == 1)
 				dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 			else
@@ -314,6 +319,7 @@ static int zte_blade_s6_td4291_probe(struct mipi_dsi_device *dsi)
 	dbg_ctx = ctx;
 
 	mutex_init(&ctx->cmd_lock);
+	ctx->bl_last = -1;
 	INIT_WORK(&ctx->bl_work, zte_blade_s6_td4291_bl_work);
 	INIT_DELAYED_WORK(&ctx->on_work, zte_blade_s6_td4291_on_work);
 	atomic_set(&ctx->bl_pending, -1);

@@ -31,6 +31,10 @@ static inline struct zte_blade_s6_td4291 *to_zte_blade_s6_td4291(struct drm_pane
 	return container_of(panel, struct zte_blade_s6_td4291, panel);
 }
 
+static int cabc = 1;
+module_param(cabc, int, 0644);
+MODULE_PARM_DESC(cabc, "DCS 0x55 WRITE_POWER_SAVE value applied at panel init (stock: 1)");
+
 static void zte_blade_s6_td4291_reset(struct zte_blade_s6_td4291 *ctx)
 {
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
@@ -62,7 +66,7 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_CABC_MIN_BRIGHTNESS, 0x00);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
-	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_POWER_SAVE, 0x01);
+	mipi_dsi_dcs_write_var_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_POWER_SAVE, cabc & 0xff);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);

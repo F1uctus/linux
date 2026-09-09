@@ -1215,6 +1215,10 @@ static int vid_cmd_wait;
 module_param(vid_cmd_wait, int, 0644);
 MODULE_PARM_DESC(vid_cmd_wait, "video-mode cmd sync: 0=wait+delay, 1=wait only, 2=none");
 
+static bool xfer_set_rate;
+module_param(xfer_set_rate, bool, 0644);
+MODULE_PARM_DESC(xfer_set_rate, "reprogram link clock rates per command transfer (upstream: y)");
+
 static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
 {
 	u32 data;
@@ -2182,7 +2186,8 @@ int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,
 	 * mdp clock need to be enabled to receive dsi interrupt
 	 */
 	pm_runtime_get_sync(&msm_host->pdev->dev);
-	cfg_hnd->ops->link_clk_set_rate(msm_host);
+	if (xfer_set_rate)
+		cfg_hnd->ops->link_clk_set_rate(msm_host);
 	cfg_hnd->ops->link_clk_enable(msm_host);
 
 	/* TODO: vote for bus bandwidth */

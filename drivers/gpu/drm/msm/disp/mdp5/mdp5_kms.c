@@ -5,9 +5,11 @@
  * Author: Rob Clark <robdclark@gmail.com>
  */
 
+#include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/interconnect.h>
 #include <linux/of_irq.h>
+#include <linux/seq_file.h>
 
 #include <drm/drm_debugfs.h>
 #include <drm/drm_drv.h>
@@ -213,6 +215,30 @@ static void mdp5_kms_destroy(struct msm_kms *kms)
 	mdp5_destroy(mdp5_kms);
 }
 
+#ifdef CONFIG_DEBUG_FS
+static int mdp5_underrun_show(struct seq_file *m, void *arg)
+{
+	struct mdp5_kms *mdp5_kms = m->private;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(mdp5_kms->underrun); i++)
+		seq_printf(m, "intf%u %u\n", i, mdp5_kms->underrun[i]);
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(mdp5_underrun);
+
+static int mdp5_kms_debugfs_init(struct msm_kms *kms, struct drm_minor *minor)
+{
+	struct mdp5_kms *mdp5_kms = to_mdp5_kms(to_mdp_kms(kms));
+
+	debugfs_create_file("underrun", 0400, minor->debugfs_root, mdp5_kms,
+			    &mdp5_underrun_fops);
+
+	return 0;
+}
+#endif
+
 static const struct mdp_kms_funcs kms_funcs = {
 	.base = {
 		.hw_init         = mdp5_hw_init,
@@ -229,6 +255,9 @@ static const struct mdp_kms_funcs kms_funcs = {
 		.wait_flush      = mdp5_wait_flush,
 		.complete_commit = mdp5_complete_commit,
 		.destroy         = mdp5_kms_destroy,
+#ifdef CONFIG_DEBUG_FS
+		.debugfs_init    = mdp5_kms_debugfs_init,
+#endif
 	},
 	.set_irqmask         = mdp5_set_irqmask,
 };

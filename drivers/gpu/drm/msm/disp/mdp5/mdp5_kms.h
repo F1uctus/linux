@@ -65,6 +65,7 @@ struct mdp5_kms {
 	bool rpm_enabled;
 
 	struct mdp_irq error_handler;
+	u32 underrun[4];	/* INTF0..3 under-run counts */
 
 	int enable_count;
 };

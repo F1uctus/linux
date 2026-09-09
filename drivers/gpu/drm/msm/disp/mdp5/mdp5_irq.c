@@ -25,6 +25,11 @@ static void mdp5_irq_error_handler(struct mdp_irq *irq, uint32_t irqstatus)
 	struct mdp5_kms *mdp5_kms = container_of(irq, struct mdp5_kms, error_handler);
 	static DEFINE_RATELIMIT_STATE(rs, 5*HZ, 1);
 	extern bool dumpstate;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(mdp5_kms->underrun); i++)
+		if (irqstatus & (MDP5_IRQ_INTF0_UNDER_RUN << (i * 2)))
+			mdp5_kms->underrun[i]++;
 
 	DRM_ERROR_RATELIMITED("errors: %08x\n", irqstatus);
 

@@ -65,8 +65,6 @@ static int zte_blade_s6_td4291_on(struct zte_blade_s6_td4291 *ctx)
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
 	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);
-	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
-	mipi_dsi_usleep_range(&dsi_ctx, 1000, 2000);
 
 	return dsi_ctx.accum_err;
 }
@@ -79,10 +77,30 @@ static int zte_blade_s6_td4291_off(struct zte_blade_s6_td4291 *ctx)
 
 	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY, 0x20);
 	mipi_dsi_usleep_range(&dsi_ctx, 5000, 6000);
-	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
-	mipi_dsi_usleep_range(&dsi_ctx, 10000, 11000);
 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 50);
+
+	return dsi_ctx.accum_err;
+}
+
+static int zte_blade_s6_td4291_enable(struct drm_panel *panel)
+{
+	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
+	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+
+	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+	mipi_dsi_usleep_range(&dsi_ctx, 1000, 2000);
+
+	return dsi_ctx.accum_err;
+}
+
+static int zte_blade_s6_td4291_disable(struct drm_panel *panel)
+{
+	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
+	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+
+	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
+	mipi_dsi_msleep(&dsi_ctx, 20);
 
 	return dsi_ctx.accum_err;
 }
@@ -143,6 +161,8 @@ static int zte_blade_s6_td4291_get_modes(struct drm_panel *panel,
 
 static const struct drm_panel_funcs zte_blade_s6_td4291_panel_funcs = {
 	.prepare = zte_blade_s6_td4291_prepare,
+	.enable = zte_blade_s6_td4291_enable,
+	.disable = zte_blade_s6_td4291_disable,
 	.unprepare = zte_blade_s6_td4291_unprepare,
 	.get_modes = zte_blade_s6_td4291_get_modes,
 };

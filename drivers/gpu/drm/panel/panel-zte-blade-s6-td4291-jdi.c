@@ -22,6 +22,7 @@ struct zte_blade_s6_td4291 {
 	struct gpio_desc *reset_gpio;
 
 	struct work_struct bl_work;
+	struct delayed_work on_work;
 	atomic_t bl_pending;	/* latest level, -1 when nothing queued */
 };
 
@@ -83,15 +84,28 @@ static int zte_blade_s6_td4291_off(struct zte_blade_s6_td4291 *ctx)
 	return dsi_ctx.accum_err;
 }
 
-static int zte_blade_s6_td4291_enable(struct drm_panel *panel)
+/* mdp5 sets late_enable, so the bridge chain - and this callback - runs before
+ * the interface timing engine starts. The interface then fetches before any
+ * plane has been flushed and under-runs, so lighting the panel here shows those
+ * frames. Defer display on past them, which is the order the vendor driver uses.
+ */
+static void zte_blade_s6_td4291_on_work(struct work_struct *work)
 {
-	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
+	struct zte_blade_s6_td4291 *ctx =
+		container_of(to_delayed_work(work), struct zte_blade_s6_td4291, on_work);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
 	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
-	mipi_dsi_usleep_range(&dsi_ctx, 1000, 2000);
+}
 
-	return dsi_ctx.accum_err;
+static int zte_blade_s6_td4291_enable(struct drm_panel *panel)
+{
+	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
+
+	/* three frames at 60 Hz */
+	schedule_delayed_work(&ctx->on_work, msecs_to_jiffies(50));
+
+	return 0;
 }
 
 static int zte_blade_s6_td4291_disable(struct drm_panel *panel)
@@ -99,6 +113,7 @@ static int zte_blade_s6_td4291_disable(struct drm_panel *panel)
 	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
+	cancel_delayed_work_sync(&ctx->on_work);
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 20);
 
@@ -291,6 +306,7 @@ static int zte_blade_s6_td4291_probe(struct mipi_dsi_device *dsi)
 	dbg_ctx = ctx;
 
 	INIT_WORK(&ctx->bl_work, zte_blade_s6_td4291_bl_work);
+	INIT_DELAYED_WORK(&ctx->on_work, zte_blade_s6_td4291_on_work);
 	atomic_set(&ctx->bl_pending, -1);
 
 	dsi->lanes = 4;
@@ -323,6 +339,7 @@ static void zte_blade_s6_td4291_remove(struct mipi_dsi_device *dsi)
 	int ret;
 
 	cancel_work_sync(&ctx->bl_work);
+	cancel_delayed_work_sync(&ctx->on_work);
 
 	ret = mipi_dsi_detach(dsi);
 	if (ret < 0)

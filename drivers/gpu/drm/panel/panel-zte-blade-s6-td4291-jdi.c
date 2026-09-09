@@ -7,6 +7,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/mod_devicetable.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/workqueue.h>
 
 #include <video/mipi_display.h>
@@ -24,6 +25,8 @@ struct zte_blade_s6_td4291 {
 	struct work_struct bl_work;
 	struct delayed_work on_work;
 	atomic_t bl_pending;	/* latest level, -1 when nothing queued */
+	struct mutex cmd_lock;
+	bool enabled;
 };
 
 static inline struct zte_blade_s6_td4291 *to_zte_blade_s6_td4291(struct drm_panel *panel)
@@ -88,23 +91,25 @@ static int zte_blade_s6_td4291_off(struct zte_blade_s6_td4291 *ctx)
 	return dsi_ctx.accum_err;
 }
 
-/* mdp5 sets late_enable, so the bridge chain - and this callback - runs before
- * the interface timing engine starts. The interface then fetches before any
- * plane has been flushed and under-runs, so lighting the panel here shows those
- * frames. Defer display on past them, which is the order the vendor driver uses.
- */
 static void zte_blade_s6_td4291_on_work(struct work_struct *work)
 {
 	struct zte_blade_s6_td4291 *ctx =
 		container_of(to_delayed_work(work), struct zte_blade_s6_td4291, on_work);
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
-	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+	mutex_lock(&ctx->cmd_lock);
+	if (ctx->enabled)
+		mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
+	mutex_unlock(&ctx->cmd_lock);
 }
 
 static int zte_blade_s6_td4291_enable(struct drm_panel *panel)
 {
 	struct zte_blade_s6_td4291 *ctx = to_zte_blade_s6_td4291(panel);
+
+	mutex_lock(&ctx->cmd_lock);
+	ctx->enabled = true;
+	mutex_unlock(&ctx->cmd_lock);
 
 	/* three frames at 60 Hz */
 	schedule_delayed_work(&ctx->on_work, msecs_to_jiffies(50));
@@ -118,6 +123,10 @@ static int zte_blade_s6_td4291_disable(struct drm_panel *panel)
 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 
 	cancel_delayed_work_sync(&ctx->on_work);
+	mutex_lock(&ctx->cmd_lock);
+	ctx->enabled = false;
+	mutex_unlock(&ctx->cmd_lock);
+	cancel_work_sync(&ctx->bl_work);
 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
 	mipi_dsi_msleep(&dsi_ctx, 20);
 
@@ -224,10 +233,6 @@ static int bl_mode;
 module_param(bl_mode, int, 0644);
 MODULE_PARM_DESC(bl_mode, "brightness DCS: 0=HS, 1=LP, 2=skip");
 
-/* The DSI controller defers a command to the next frame boundary, so each DCS
- * write blocks for a whole frame while video streams. Coalesce updates onto a
- * work item: a slider drag then costs one write, not one per step.
- */
 static void zte_blade_s6_td4291_bl_work(struct work_struct *work)
 {
 	struct zte_blade_s6_td4291 *ctx =
@@ -238,18 +243,18 @@ static void zte_blade_s6_td4291_bl_work(struct work_struct *work)
 	while ((level = atomic_xchg(&ctx->bl_pending, -1)) >= 0) {
 		u8 brightness = level;
 
-		/* 0 = HS, 1 = LP, 2 = drop the write entirely */
-		if (bl_mode == 2)
-			continue;
+		mutex_lock(&ctx->cmd_lock);
+		if (ctx->enabled && bl_mode != 2) {
+			if (bl_mode == 1)
+				dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+			else
+				dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
 
-		if (bl_mode == 1)
+			mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
+					   &brightness, 1);
 			dsi->mode_flags |= MIPI_DSI_MODE_LPM;
-		else
-			dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
-
-		mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
-				   &brightness, 1);
-		dsi->mode_flags |= MIPI_DSI_MODE_LPM;
+		}
+		mutex_unlock(&ctx->cmd_lock);
 	}
 }
 
@@ -259,8 +264,7 @@ static int zte_blade_s6_td4291_bl_update_status(struct backlight_device *bl)
 	struct zte_blade_s6_td4291 *ctx = mipi_dsi_get_drvdata(dsi);
 	u8 brightness = backlight_get_brightness(bl);
 
-	/* downstream floors the DCS level at 10 of 205; below that the panel
-	 * driver misbehaves rather than dimming further */
+	/* Nonzero DCS levels start at 10. */
 	if (brightness > 0 && brightness < 10)
 		brightness = 10;
 
@@ -309,6 +313,7 @@ static int zte_blade_s6_td4291_probe(struct mipi_dsi_device *dsi)
 	mipi_dsi_set_drvdata(dsi, ctx);
 	dbg_ctx = ctx;
 
+	mutex_init(&ctx->cmd_lock);
 	INIT_WORK(&ctx->bl_work, zte_blade_s6_td4291_bl_work);
 	INIT_DELAYED_WORK(&ctx->on_work, zte_blade_s6_td4291_on_work);
 	atomic_set(&ctx->bl_pending, -1);

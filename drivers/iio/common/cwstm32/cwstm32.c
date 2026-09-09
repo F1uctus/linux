@@ -43,15 +43,16 @@
 #define CW_LIGHT		3
 #define CW_PROXIMITY		4
 #define CW_MOTION_COUNT		3	/* accel/magn/gyro = ids 0..2 */
+#define CW_STREAM_COUNT		4	/* + light = ids 0..3, enabled at probe */
+#define CW_SENSOR_COUNT		5	/* + proximity = ids 0..4, on demand */
 
 /* CW_INTERRUPT_STATUS bits */
 #define CW_INT_INIT		BIT(1)	/* hub reset: re-enable sensors */
 #define CW_INT_DATAREADY	BIT(6)	/* new sample(s) latched */
 
 #define CW_MOTION_PERIOD_MS	50	/* ~20 Hz motion sampling */
+#define CW_ENV_PERIOD_MS	200	/* ~5 Hz light/proximity sampling */
 #define CW_FWVERSION_RETRIES	3
-#define CW_NODATA		0xff	/* high byte sentinel: no fresh sample */
-#define CW_NODATA_RETRIES	8
 #define CW_WATCHDOG_MS		250	/* stall-recovery poll interval */
 #define CW_STALL_MS		400	/* no data-ready for this long => re-kick */
 
@@ -63,9 +64,9 @@ struct cwstm32 {
 	struct mutex lock;	/* serialises i2c + enabled_mask + cache */
 	u32 enabled_mask;	/* bitmask of enabled CW_SENSORS_ID */
 
-	/* latest motion samples, filled from the data-ready IRQ (ids 0..2) */
-	s16 cache[CW_MOTION_COUNT][3];
-	bool cache_valid[CW_MOTION_COUNT];
+	/* latest samples, filled from the data-ready IRQ (ids 0..4) */
+	s16 cache[CW_SENSOR_COUNT][3];
+	bool cache_valid[CW_SENSOR_COUNT];
 
 	/* vigorous motion intermittently stalls the hub's data-ready stream and
 	 * it does not resume on its own; a watchdog re-kicks it on stall */
@@ -119,6 +120,11 @@ static int cwstm32_fw_version(struct cwstm32 *st, u8 *ver)
 	return ret;
 }
 
+static u8 cwstm32_period(int id)
+{
+	return id < CW_MOTION_COUNT ? CW_MOTION_PERIOD_MS : CW_ENV_PERIOD_MS;
+}
+
 /* Enable a sensor and set its sample period. Caller holds st->lock. */
 static int cwstm32_enable(struct cwstm32 *st, int id, u8 period_ms)
 {
@@ -154,7 +160,7 @@ static void cwstm32_reenable(struct cwstm32 *st)
 	st->enabled_mask = 0;
 	for (id = 0; mask; id++, mask >>= 1) {
 		if (mask & 1)
-			cwstm32_enable(st, id, CW_MOTION_PERIOD_MS);
+			cwstm32_enable(st, id, cwstm32_period(id));
 	}
 }
 
@@ -185,7 +191,7 @@ static irqreturn_t cwstm32_irq(int irq, void *data)
 		cwstm32_reenable(st);
 
 	if (status & CW_INT_DATAREADY) {
-		for (id = 0; id < CW_MOTION_COUNT; id++) {
+		for (id = 0; id < CW_SENSOR_COUNT; id++) {
 			if (!(update & BIT(id)) || !(st->enabled_mask & BIT(id)))
 				continue;
 			if (cwstm32_read_block(st, CW_SENSORS_REG_START + id,
@@ -243,38 +249,22 @@ static int cwstm32_read_motion(struct cwstm32 *st, int id, int axis, int *val)
 	return ret;
 }
 
-/*
- * Light and proximity are event-driven: their data register reads CW_NODATA in
- * the high byte until the hub produces a fresh sample, and a cold read can time
- * out. Poll past the sentinel/errors to fetch a real value.
- */
 static int cwstm32_read_env(struct cwstm32 *st, int id, int *val)
 {
-	u8 buf[4];
-	int ret = -ENODATA;
-	int i;
+	int ret = 0;
 
 	mutex_lock(&st->lock);
-	cwstm32_wake(st, true);
 	if (!(st->enabled_mask & BIT(id))) {
-		ret = cwstm32_enable(st, id, CW_MOTION_PERIOD_MS);
-		if (ret < 0)
-			goto out;
+		cwstm32_wake(st, true);
+		ret = cwstm32_enable(st, id, cwstm32_period(id));
+		cwstm32_wake(st, false);
+		if (ret == 0)
+			ret = -EAGAIN;	/* first sample lands on the next IRQ */
+	} else if (st->cache_valid[id]) {
+		*val = (u16)st->cache[id][0];
+	} else {
+		ret = -EAGAIN;
 	}
-	for (i = 0; i < CW_NODATA_RETRIES; i++) {
-		msleep(CW_MOTION_PERIOD_MS);
-		ret = cwstm32_read_block(st, CW_SENSORS_REG_START + id, buf, 4);
-		if (ret < 0)
-			continue;
-		if (buf[1] == CW_NODATA) {
-			ret = -ENODATA;
-			continue;
-		}
-		*val = buf[0] | (buf[1] << 8);
-		break;
-	}
-out:
-	cwstm32_wake(st, false);
 	mutex_unlock(&st->lock);
 	return ret;
 }
@@ -351,8 +341,8 @@ static const struct iio_chan_spec cwstm32_channels[] = {
 
 static int cwstm32_probe(struct i2c_client *client)
 {
-	static const char * const supplies[] = { "vdd", "vio" };
 	struct device *dev = &client->dev;
+	static const char * const supplies[] = { "vdd", "vio" };
 	struct iio_dev *indio_dev;
 	struct cwstm32 *st;
 	u8 ver[2];
@@ -398,9 +388,9 @@ static int cwstm32_probe(struct i2c_client *client)
 	cwstm32_wake(st, true);
 	ret = cwstm32_fw_version(st, ver);
 	if (ret == 0) {
-		/* enable the motion sensors so the hub streams data-ready IRQs */
-		for (id = 0; id < CW_MOTION_COUNT && ret == 0; id++)
-			ret = cwstm32_enable(st, id, CW_MOTION_PERIOD_MS);
+		/* stream motion and light; proximity waits until something reads it */
+		for (id = 0; id < CW_STREAM_COUNT && ret == 0; id++)
+			ret = cwstm32_enable(st, id, cwstm32_period(id));
 	}
 	cwstm32_wake(st, false);
 	if (ret < 0)

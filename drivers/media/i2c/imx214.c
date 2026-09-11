@@ -275,6 +275,68 @@ struct imx214 {
 };
 
 /*From imx214_mode_tbls.h*/
+static const struct cci_reg_sequence mode_4208x3120[] = {
+	{ IMX214_REG_HDR_MODE, IMX214_HDR_MODE_OFF },
+	{ IMX214_REG_HDR_RES_REDUCTION, IMX214_HDR_RES_REDU_THROUGH },
+	{ IMX214_REG_EXPOSURE_RATIO, 1 },
+	{ IMX214_REG_X_ADD_STA, 0 },
+	{ IMX214_REG_Y_ADD_STA, 0 },
+	{ IMX214_REG_X_ADD_END, 4207 },
+	{ IMX214_REG_Y_ADD_END, 3119 },
+	{ IMX214_REG_X_EVEN_INC, 1 },
+	{ IMX214_REG_X_ODD_INC, 1 },
+	{ IMX214_REG_Y_EVEN_INC, 1 },
+	{ IMX214_REG_Y_ODD_INC, 1 },
+	{ IMX214_REG_BINNING_MODE, IMX214_BINNING_NONE },
+	{ IMX214_REG_BINNING_TYPE, 0 },
+	{ IMX214_REG_BINNING_WEIGHTING, IMX214_BINNING_AVERAGE },
+	{ CCI_REG8(0x3000), 0x3D },
+	{ CCI_REG8(0x3050), 0x00 },
+	{ CCI_REG8(0x3054), 0x01 },
+	{ CCI_REG8(0x305C), 0x11 },
+	{ CCI_REG8(0x305D), 0x00 },
+	{ CCI_REG8(0x401D), 0x10 },
+
+	{ IMX214_REG_CSI_DATA_FORMAT, IMX214_CSI_DATA_FORMAT_RAW10 },
+	{ IMX214_REG_X_OUTPUT_SIZE, 4208 },
+	{ IMX214_REG_Y_OUTPUT_SIZE, 3120 },
+	{ IMX214_REG_SCALE_MODE, IMX214_SCALE_NONE },
+	{ IMX214_REG_SCALE_M, 16 },
+	{ IMX214_REG_DIG_CROP_X_OFFSET, 0 },
+	{ IMX214_REG_DIG_CROP_Y_OFFSET, 0 },
+	{ IMX214_REG_DIG_CROP_WIDTH, 4208 },
+	{ IMX214_REG_DIG_CROP_HEIGHT, 3120 },
+
+	{ CCI_REG8(0x3A03), 0x08 },
+	{ CCI_REG8(0x3A04), 0xD0 },
+	{ CCI_REG8(0x3A05), 0x02 },
+
+	{ CCI_REG8(0x0B00), 0x00 },
+	{ CCI_REG8(0x0B02), 0x00 },
+	{ CCI_REG8(0x0B03), 0x00 },
+	{ CCI_REG8(0x0B04), 0x01 },
+	{ CCI_REG8(0x0B05), 0x01 },
+	{ IMX214_REG_SING_DEF_CORR_EN, IMX214_SING_DEF_CORR_ON },
+	{ CCI_REG8(0x0B08), 0x00 },
+	{ IMX214_REG_NML_NR_EN, IMX214_NML_NR_OFF },
+
+	{ CCI_REG8(0x30B4), 0x00 },
+
+	{ CCI_REG8(0x3A02), 0xFF },
+
+	{ CCI_REG8(0x3011), 0x00 },
+	{ CCI_REG8(0x3018), 0x01 },
+	{ CCI_REG8(0x3019), 0x01 },
+	{ CCI_REG8(0x301A), 0x01 },
+	{ IMX214_REG_STATS_OUT_EN, IMX214_STATS_OUT_OFF },
+
+	{ IMX214_REG_SHORT_EXPOSURE, 500 },
+
+	{ CCI_REG8(0x5062), 0x10 },
+	{ CCI_REG8(0x5063), 0x70 },
+	{ CCI_REG8(0x5064), 0x00 },
+};
+
 static const struct cci_reg_sequence mode_4096x2304[] = {
 	{ IMX214_REG_HDR_MODE, IMX214_HDR_MODE_OFF },
 	{ IMX214_REG_HDR_RES_REDUCTION, IMX214_HDR_RES_REDU_THROUGH },
@@ -501,14 +563,24 @@ static const struct imx214_mode {
 
 	/* V-timing */
 	unsigned int vts_def;
+	unsigned int vblank_min;
 
 	unsigned int num_of_regs;
 	const struct cci_reg_sequence *reg_table;
 } imx214_modes[] = {
 	{
+		.width = 4208,
+		.height = 3120,
+		.vts_def = 3190,
+		.vblank_min = 70,
+		.num_of_regs = ARRAY_SIZE(mode_4208x3120),
+		.reg_table = mode_4208x3120,
+	},
+	{
 		.width = 4096,
 		.height = 2304,
 		.vts_def = 3194,
+		.vblank_min = IMX214_VBLANK_MIN,
 		.num_of_regs = ARRAY_SIZE(mode_4096x2304),
 		.reg_table = mode_4096x2304,
 	},
@@ -516,6 +588,7 @@ static const struct imx214_mode {
 		.width = 1920,
 		.height = 1080,
 		.vts_def = 3194,
+		.vblank_min = IMX214_VBLANK_MIN,
 		.num_of_regs = ARRAY_SIZE(mode_1920x1080),
 		.reg_table = mode_1920x1080,
 	},
@@ -691,7 +764,7 @@ static int imx214_set_format(struct v4l2_subdev *sd,
 		int hblank;
 
 		/* Update blank limits */
-		__v4l2_ctrl_modify_range(imx214->vblank, IMX214_VBLANK_MIN,
+		__v4l2_ctrl_modify_range(imx214->vblank, mode->vblank_min,
 					 IMX214_VTS_MAX - mode->height, 2,
 					 mode->vts_def - mode->height);
 
@@ -1028,7 +1101,7 @@ static int imx214_ctrls_init(struct imx214 *imx214)
 
 	/* Initial vblank/hblank/exposure parameters based on current mode */
 	imx214->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &imx214_ctrl_ops,
-					   V4L2_CID_VBLANK, IMX214_VBLANK_MIN,
+					   V4L2_CID_VBLANK, mode->vblank_min,
 					   IMX214_VTS_MAX - mode->height, 2,
 					   mode->vts_def - mode->height);
 

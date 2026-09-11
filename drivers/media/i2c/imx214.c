@@ -1405,7 +1405,7 @@ static int imx214_probe(struct i2c_client *client)
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "failed to get regulators\n");
 
-	imx214->enable_gpio = devm_gpiod_get(dev, "enable", GPIOD_OUT_LOW);
+	imx214->enable_gpio = devm_gpiod_get_optional(dev, "enable", GPIOD_OUT_LOW);
 	if (IS_ERR(imx214->enable_gpio))
 		return dev_err_probe(dev, PTR_ERR(imx214->enable_gpio),
 				     "failed to get enable gpio\n");

@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/leds/ti,lm3642.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: TI LM3642 1.5A Synchronous Boost Flash LED Driver
+
+maintainers:
+  - Ilya I. Nikitin <ilya.i.nikitin@proton.me>
+
+description:
+  The LM3642 drives a single white LED in flash, torch and indicator modes
+  over I2C. Flash and torch are exposed as one flash class device, the
+  indicator as a plain LED.
+
+properties:
+  compatible:
+    const: ti,lm3642
+
+  reg:
+    const: 0x63
+
+  led-flash:
+    type: object
+    $ref: /schemas/leds/common.yaml#
+    unevaluatedProperties: false
+
+    properties:
+      led-max-microamp:
+        maximum: 375000
+
+      flash-max-microamp:
+        maximum: 1500000
+
+      flash-max-timeout-us:
+        maximum: 800000
+
+  led-indicator:
+    type: object
+    $ref: /schemas/leds/common.yaml#
+    unevaluatedProperties: false
+
+required:
+  - compatible
+  - reg
+  - led-flash
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/leds/common.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        led-controller@63 {
+            compatible = "ti,lm3642";
+            reg = <0x63>;
+
+            led-flash {
+                function = LED_FUNCTION_FLASH;
+                color = <LED_COLOR_ID_WHITE>;
+                led-max-microamp = <375000>;
+                flash-max-microamp = <1500000>;
+                flash-max-timeout-us = <800000>;
+            };
+
+            led-indicator {
+                function = LED_FUNCTION_INDICATOR;
+                color = <LED_COLOR_ID_WHITE>;
+            };
+        };
+    };
+...

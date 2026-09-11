@@ -39,6 +39,16 @@ config LEDS_LM3601X
 	  This option enables support for the TI LM3601x family
 	  of flash, torch and indicator classes.
 
+config LEDS_LM3642
+	tristate "LED support for the TI LM3642 flash controller"
+	depends on I2C
+	depends on V4L2_FLASH_LED_CLASS || !V4L2_FLASH_LED_CLASS
+	select REGMAP_I2C
+	help
+	  This option enables support for the LM3642 flash LED controller.
+	  The LED is exposed as a flash class device with torch, flash and
+	  indicator modes driven over I2C.
+
 config LEDS_MAX77693
 	tristate "LED support for MAX77693 Flash"
 	depends on V4L2_FLASH_LED_CLASS || !V4L2_FLASH_LED_CLASS

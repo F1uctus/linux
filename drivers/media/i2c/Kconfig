@@ -926,6 +926,13 @@ config VIDEO_AK7375
 	  capability. This is designed for linear control of
 	  voice coil motors, controlled via I2C serial interface.
 
+config VIDEO_BU64291
+	tristate "BU64291 lens voice coil support"
+	help
+	  This is a driver for the ROHM BU64291GWZ camera lens voice coil.
+	  BU64291GWZ is a 10 bit DAC driving a voice coil motor with
+	  resonance suppression, controlled via I2C serial interface.
+
 config VIDEO_DW9714
 	tristate "DW9714 lens voice coil support"
 	depends on GPIOLIB

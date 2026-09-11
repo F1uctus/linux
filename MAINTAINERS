@@ -24377,6 +24377,13 @@ T:	git git://linuxtv.org/media_tree.git
 F:	Documentation/devicetree/bindings/media/i2c/samsung,s5k3m5.yaml
 F:	drivers/media/i2c/s5k3m5.c
 
+ROHM BU64291 VCM DRIVER
+M:	Ilya I. Nikitin <ilya.i.nikitin@proton.me>
+S:	Maintained
+T:	git git://linuxtv.org/media_tree.git
+F:	Documentation/devicetree/bindings/media/i2c/rohm,bu64291.yaml
+F:	drivers/media/i2c/bu64291.c
+
 SAMSUNG S5K5E2 CAMERA DRIVER
 M:	Ilya I. Nikitin <ilya.i.nikitin@proton.me>
 S:	Maintained

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/media/i2c/rohm,bu64291.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ROHM BU64291GWZ camera voice coil lens driver
+
+maintainers:
+  - Ilya I. Nikitin <ilya.i.nikitin@proton.me>
+
+description:
+  BU64291GWZ is a 10-bit DAC driving a voice coil lens actuator with
+  resonance suppression. It is intended for autofocus in camera modules.
+
+properties:
+  compatible:
+    const: rohm,bu64291
+
+  reg:
+    maxItems: 1
+
+  vcc-supply:
+    description: VDD power supply
+
+required:
+  - compatible
+  - reg
+  - vcc-supply
+
+additionalProperties: false
+
+examples:
+  - |
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        camera-lens@c {
+            compatible = "rohm,bu64291";
+            reg = <0x0c>;
+            vcc-supply = <&reg_vaf_2v8>;
+        };
+    };
+...

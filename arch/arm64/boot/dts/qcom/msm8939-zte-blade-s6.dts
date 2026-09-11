@@ -35,6 +35,15 @@
 		#size-cells = <2>;
 		ranges;
 
+		/* Full-resolution camera frames need contiguous buffers */
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0c000000>;
+			alignment = <0x0 0x00400000>;
+			linux,cma-default;
+		};
+
 		ramoops@bfe00000 {
 			compatible = "ramoops";
 			reg = <0x0 0xbfe00000 0x0 0x100000>;
@@ -78,6 +87,44 @@
 		regulator-max-microvolt = <1800000>;
 		gpio = <&tlmm 21 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
+	};
+
+	/*
+	 * The camera modules take their analog and digital rails through load
+	 * switches on the board, not straight off the PMIC: qcom,gpio-vana and
+	 * qcom,gpio-vdig in the vendor tree. VANA is shared by both sensors.
+	 */
+	camera_vana_2v85: regulator-camera-vana {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_vana";
+		regulator-min-microvolt = <2850000>;
+		regulator-max-microvolt = <2850000>;
+		gpio = <&tlmm 69 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&pm8916_l17>;
+	};
+
+	camera_rear_vdig: regulator-camera-rear-vdig {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_rear_vdig";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 109 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&pm8916_s4>;
+	};
+
+	camera_front_vdig: regulator-camera-front-vdig {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_front_vdig";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		gpio = <&tlmm 17 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		vin-supply = <&pm8916_s4>;
 	};
 
 	gpio-keys {
@@ -295,6 +342,163 @@
 	status = "okay";
 };
 
+&camss {
+	status = "okay";
+
+	ports {
+		port@0 {
+			reg = <0>;
+			csiphy0_ep: endpoint {
+				data-lanes = <0 2 3 4>;
+				remote-endpoint = <&rear_ep>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+
+			csiphy1_ep: endpoint {
+				data-lanes = <0 2>;
+				remote-endpoint = <&front_ep>;
+			};
+		};
+	};
+};
+
+&cci {
+	status = "okay";
+};
+
+&cci_i2c0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/* camera flash / torch */
+	led-controller@63 {
+		compatible = "ti,lm3642";
+		reg = <0x63>;
+
+		camera_flash: led-flash {
+			function = LED_FUNCTION_FLASH;
+			color = <LED_COLOR_ID_WHITE>;
+			led-max-microamp = <375000>;
+			flash-max-microamp = <1500000>;
+			flash-max-timeout-us = <800000>;
+		};
+
+		led-indicator {
+			function = LED_FUNCTION_INDICATOR;
+			color = <LED_COLOR_ID_WHITE>;
+		};
+	};
+
+	/* autofocus actuator on the rear camera module */
+	camera_lens: lens@c {
+		compatible = "rohm,bu64291";
+		reg = <0x0c>;
+		vcc-supply = <&pm8916_l10>;
+	};
+
+	eeprom@50 {
+		compatible = "atmel,24c16";
+		reg = <0x50>;
+		pagesize = <16>;
+		read-only;
+		vcc-supply = <&pm8916_l6>;
+	};
+};
+
+/ {
+	/*
+	 * Both sensors answer at 0x10 and are told apart by their reset
+	 * lines: the module held in reset releases the bus. Selecting a
+	 * channel releases that sensor and asserts the other one's reset.
+	 */
+	camera_i2c_mux: i2c-mux {
+		compatible = "i2c-mux-gpio";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		i2c-parent = <&cci_i2c0>;
+		mux-gpios = <&tlmm 35 GPIO_ACTIVE_HIGH>, <&tlmm 28 GPIO_ACTIVE_HIGH>;
+		settle-time-us = <30000>;
+
+		i2c@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* rear camera: Sony IMX214, 13 MP */
+			camera@10 {
+				compatible = "sony,imx214";
+				reg = <0x10>;
+
+				pinctrl-0 = <&camera_rear_default>;
+				pinctrl-names = "default";
+
+				clocks = <&gcc GCC_CAMSS_MCLK0_CLK>;
+				clock-names = "xclk";
+				assigned-clocks = <&gcc GCC_CAMSS_MCLK0_CLK>;
+				assigned-clock-rates = <24000000>;
+
+				vdddo-supply = <&pm8916_l6>;
+				vdda-supply = <&camera_vana_2v85>;
+				vddd-supply = <&camera_rear_vdig>;
+
+				lens-focus = <&camera_lens>;
+				flash-leds = <&camera_flash>;
+
+				orientation = <1>;
+				rotation = <90>;
+
+				port {
+					rear_ep: endpoint {
+						data-lanes = <1 2 3 4>;
+						link-frequencies = /bits/ 64 <600000000>;
+						remote-endpoint = <&csiphy0_ep>;
+					};
+				};
+			};
+		};
+
+		i2c@2 {
+			reg = <2>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* front camera: Samsung S5K5E2, 5 MP */
+			camera@10 {
+				compatible = "samsung,s5k5e2";
+				reg = <0x10>;
+
+				pinctrl-0 = <&camera_front_default>;
+				pinctrl-names = "default";
+
+				clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;
+				clock-names = "xclk";
+				assigned-clocks = <&gcc GCC_CAMSS_MCLK1_CLK>;
+				assigned-clock-rates = <24000000>;
+
+				vddio-supply = <&pm8916_l6>;
+				vdda-supply = <&camera_vana_2v85>;
+				vddd-supply = <&camera_front_vdig>;
+
+				orientation = <0>;
+				rotation = <270>;
+
+				port {
+					front_ep: endpoint {
+						data-lanes = <1 2>;
+						link-frequencies = /bits/ 64 <448000000>;
+						remote-endpoint = <&csiphy1_ep>;
+					};
+				};
+			};
+		};
+	};
+};
+
+
 &mdss {
 	status = "okay";
 };
@@ -334,6 +538,12 @@
 };
 
 &pm8916_rpm_regulators {
+	/* VCM autofocus actuator on the rear camera module */
+	pm8916_l10: l10 {
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+	};
+
 	pm8916_l17: l17 {
 		regulator-min-microvolt = <2850000>;
 		regulator-max-microvolt = <2850000>;

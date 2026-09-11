@@ -939,6 +939,22 @@ static bool vfe_check_clock_levels(struct camss_clock *clock)
 }
 
 /*
+ * vfe_rdi_bits_per_clock - Width of the RDI write path
+ * @vfe: VFE device
+ *
+ * Return the number of bits the RDI path moves per VFE clock cycle.
+ */
+static unsigned int vfe_rdi_bits_per_clock(struct vfe_device *vfe)
+{
+	switch (vfe->camss->res->version) {
+	case CAMSS_8x39:
+		return 32;
+	default:
+		return 64;
+	}
+}
+
+/*
  * vfe_set_clock_rates - Calculate and set clock rates on VFE module
  * @vfe: VFE device
  *
@@ -977,7 +993,8 @@ static int vfe_set_clock_rates(struct vfe_device *vfe)
 					bpp = camss_format_get_bpp(l->formats,
 								   l->nformats,
 								   l->fmt[MSM_VFE_PAD_SINK].code);
-					tmp = pixel_clock[j] * bpp / 64;
+					tmp = pixel_clock[j] * bpp /
+					      vfe_rdi_bits_per_clock(vfe);
 				}
 
 				if (min_rate < tmp)

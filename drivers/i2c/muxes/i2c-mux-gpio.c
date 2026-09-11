@@ -21,6 +21,7 @@ struct gpiomux {
 	struct i2c_mux_gpio_platform_data data;
 	int ngpios;
 	struct gpio_desc **gpios;
+	unsigned int last;
 };
 
 static void i2c_mux_gpio_set(const struct gpiomux *mux, unsigned int val)
@@ -35,10 +36,12 @@ static void i2c_mux_gpio_set(const struct gpiomux *mux, unsigned int val)
 static int i2c_mux_gpio_select(struct i2c_mux_core *muxc, u32 chan)
 {
 	struct gpiomux *mux = i2c_mux_priv(muxc);
+	bool changed = chan != mux->last;
 
 	i2c_mux_gpio_set(mux, chan);
+	mux->last = chan;
 
-	if (mux->data.settle_time)
+	if (mux->data.settle_time && changed)
 		fsleep(mux->data.settle_time);
 
 	return 0;
@@ -49,6 +52,7 @@ static int i2c_mux_gpio_deselect(struct i2c_mux_core *muxc, u32 chan)
 	struct gpiomux *mux = i2c_mux_priv(muxc);
 
 	i2c_mux_gpio_set(mux, mux->data.idle);
+	mux->last = mux->data.idle;
 
 	return 0;
 }
@@ -180,6 +184,7 @@ static int i2c_mux_gpio_probe(struct platform_device *pdev)
 	} else {
 		initial_state = mux->data.values[0];
 	}
+	mux->last = initial_state;
 
 	for (i = 0; i < ngpios; i++) {
 		struct gpio_device *gdev;

@@ -449,7 +449,7 @@
 				flash-leds = <&camera_flash>;
 
 				orientation = <1>;
-				rotation = <90>;
+				rotation = <270>;
 
 				port {
 					rear_ep: endpoint {

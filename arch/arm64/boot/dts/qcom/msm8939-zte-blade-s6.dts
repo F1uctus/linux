@@ -602,6 +602,273 @@
 		"AMIC3", "MIC BIAS External1";
 };
 
+/* Past 85 C every SoC zone throttles both clusters and the GPU; past 90 C it pins them at their lowest OPP */
+&thermal_zones {
+	cpu0-thermal {
+		trips {
+			cpu0_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			cpu0_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&cpu0_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&cpu0_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+
+	cpu1-thermal {
+		trips {
+			cpu1_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			cpu1_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&cpu1_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&cpu1_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+
+	cpu2-thermal {
+		trips {
+			cpu2_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			cpu2_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&cpu2_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&cpu2_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+
+	cpu3-thermal {
+		trips {
+			cpu3_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			cpu3_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&cpu3_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&cpu3_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+
+	cpu4567-thermal {
+		trips {
+			cpu4567_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			cpu4567_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&cpu4567_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&cpu4567_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+
+	gpu-thermal {
+		trips {
+			gpu_soak: trip-soak {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			gpu_limit: trip-limit {
+				temperature = <90000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map-soak {
+				trip = <&gpu_soak>;
+				cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+						 <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+			};
+
+			map-limit {
+				trip = <&gpu_limit>;
+				cooling-device = <&cpu0 3 3>,
+						 <&cpu1 3 3>,
+						 <&cpu2 3 3>,
+						 <&cpu3 3 3>,
+						 <&cpu4 6 6>,
+						 <&cpu5 6 6>,
+						 <&cpu6 6 6>,
+						 <&cpu7 6 6>,
+						 <&gpu 4 4>;
+			};
+		};
+	};
+};
+
 &tlmm {
 	smb_int_default: smb-int-default-state {
 		pins = "gpio62";

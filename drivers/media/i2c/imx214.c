@@ -41,7 +41,6 @@
 #define IMX214_REG_FRM_LENGTH_LINES	CCI_REG16(0x0340)
 #define IMX214_VTS_MAX			0xffff
 
-#define IMX214_VBLANK_MIN		890
 
 /* HBLANK control - read only */
 #define IMX214_PPL_DEFAULT		5008
@@ -629,15 +628,15 @@ static const struct imx214_mode {
 		.width = 4096,
 		.height = 2304,
 		.vts_def = 3194,
-		.vblank_min = IMX214_VBLANK_MIN,
+		.vblank_min = 890,
 		.num_of_regs = ARRAY_SIZE(mode_4096x2304),
 		.reg_table = mode_4096x2304,
 	},
 	{
 		.width = 2104,
 		.height = 1560,
-		.vts_def = 2120,
-		.vblank_min = 560,
+		.vts_def = 3194,
+		.vblank_min = 1634,
 		.num_of_regs = ARRAY_SIZE(mode_2104x1560),
 		.reg_table = mode_2104x1560,
 	},
@@ -645,7 +644,7 @@ static const struct imx214_mode {
 		.width = 1920,
 		.height = 1080,
 		.vts_def = 3194,
-		.vblank_min = IMX214_VBLANK_MIN,
+		.vblank_min = 2114,
 		.num_of_regs = ARRAY_SIZE(mode_1920x1080),
 		.reg_table = mode_1920x1080,
 	},

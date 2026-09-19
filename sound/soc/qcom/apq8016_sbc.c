@@ -146,6 +146,18 @@ static int apq8016_dai_init(struct snd_soc_pcm_runtime *rtd, int mi2s)
 	return 0;
 }
 
+static void apq8016_dai_exit(struct snd_soc_pcm_runtime *rtd)
+{
+	struct apq8016_sbc_data *pdata = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *codec_dai;
+	int i;
+
+	for_each_rtd_codec_dais(rtd, i, codec_dai)
+		snd_soc_component_set_jack(codec_dai->component, NULL, NULL);
+
+	pdata->jack_setup = false;
+}
+
 static int apq8016_sbc_dai_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
@@ -158,8 +170,10 @@ static void apq8016_sbc_add_ops(struct snd_soc_card *card)
 	struct snd_soc_dai_link *link;
 	int i;
 
-	for_each_card_prelinks(card, i, link)
+	for_each_card_prelinks(card, i, link) {
 		link->init = apq8016_sbc_dai_init;
+		link->exit = apq8016_dai_exit;
+	}
 }
 
 static int qdsp6_dai_get_lpass_id(struct snd_soc_dai *cpu_dai)
@@ -263,6 +277,7 @@ static void msm8916_qdsp6_add_ops(struct snd_soc_card *card)
 	for_each_card_prelinks(card, i, link) {
 		if (link->no_pcm) {
 			link->init = msm8916_qdsp6_dai_init;
+			link->exit = apq8016_dai_exit;
 			link->ops = &msm8916_qdsp6_be_ops;
 			link->be_hw_params_fixup = msm8916_qdsp6_be_hw_params_fixup;
 		}

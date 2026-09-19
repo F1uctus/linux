@@ -3,6 +3,7 @@
 // Copyright (c) 2018, Linaro Limited
 
 #include <dt-bindings/sound/qcom,q6asm.h>
+#include <linux/completion.h>
 #include <linux/init.h>
 #include <linux/err.h>
 #include <linux/module.h>
@@ -74,6 +75,8 @@ struct q6asm_dai_rtd {
 	uint32_t initial_samples_drop;
 	uint32_t trailing_samples_drop;
 	bool notify_on_drain;
+	struct completion eos_done;
+	bool eos_pending;
 };
 
 struct q6asm_dai_data {
@@ -186,6 +189,7 @@ static void event_handler(uint32_t opcode, uint32_t token,
 	case ASM_CLIENT_EVENT_CMD_RUN_DONE:
 		break;
 	case ASM_CLIENT_EVENT_CMD_EOS_DONE:
+		complete(&prtd->eos_done);
 		break;
 	case ASM_CLIENT_EVENT_DATA_WRITE_DONE:
 		snd_pcm_period_elapsed(substream);
@@ -241,6 +245,7 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
 		q6routing_stream_close(soc_prtd->dai_link->id,
 					 substream->stream);
 		prtd->state = Q6ASM_STREAM_STOPPED;
+		prtd->eos_pending = false;
 	}
 
 	ret = q6asm_map_memory_regions(substream->stream, prtd->audio_client,
@@ -347,8 +352,14 @@ static int q6asm_dai_trigger(struct snd_soc_component *component,
 				       0, 0, 0);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			reinit_completion(&prtd->eos_done);
+			prtd->eos_pending = true;
+		}
 		ret = q6asm_cmd_nowait(prtd->audio_client, prtd->stream_id,
 				       CMD_EOS);
+		if (ret < 0)
+			prtd->eos_pending = false;
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
@@ -388,6 +399,7 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 		return -ENOMEM;
 
 	prtd->substream = substream;
+	init_completion(&prtd->eos_done);
 	prtd->audio_client = q6asm_audio_client_alloc(dev,
 				(q6asm_cb)event_handler, prtd, stream_id,
 				LEGACY_PCM_MODE);
@@ -450,6 +462,32 @@ static int q6asm_dai_open(struct snd_soc_component *component,
 		prtd->phys = substream->dma_buffer.addr;
 	else
 		prtd->phys = substream->dma_buffer.addr | (pdata->sid << 32);
+
+	return 0;
+}
+
+static int q6asm_dai_hw_free(struct snd_soc_component *component,
+			     struct snd_pcm_substream *substream)
+{
+	struct snd_pcm_runtime *runtime = substream->runtime;
+	struct snd_soc_pcm_runtime *soc_prtd = snd_soc_substream_to_rtd(substream);
+	struct q6asm_dai_rtd *prtd = runtime->private_data;
+	unsigned long timeout;
+
+	if (prtd->eos_pending) {
+		timeout = msecs_to_jiffies(DIV_ROUND_UP(runtime->buffer_size * 1000,
+							runtime->rate) + 100);
+		if (!wait_for_completion_timeout(&prtd->eos_done, timeout))
+			dev_warn(component->dev, "EOS not rendered before close\n");
+		prtd->eos_pending = false;
+	}
+
+	if (prtd->state == Q6ASM_STREAM_RUNNING) {
+		q6asm_cmd(prtd->audio_client, prtd->stream_id, CMD_CLOSE);
+		q6asm_unmap_memory_regions(substream->stream, prtd->audio_client);
+		q6routing_stream_close(soc_prtd->dai_link->id, substream->stream);
+		prtd->state = Q6ASM_STREAM_STOPPED;
+	}
 
 	return 0;
 }
@@ -1221,6 +1259,7 @@ static const struct snd_soc_component_driver q6asm_fe_dai_component = {
 	.name			= DRV_NAME,
 	.open			= q6asm_dai_open,
 	.hw_params		= q6asm_dai_hw_params,
+	.hw_free		= q6asm_dai_hw_free,
 	.close			= q6asm_dai_close,
 	.prepare		= q6asm_dai_prepare,
 	.trigger		= q6asm_dai_trigger,

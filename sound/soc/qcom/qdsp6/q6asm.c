@@ -525,6 +525,8 @@ int q6asm_map_memory_regions(unsigned int dir, struct audio_client *ac,
 		}
 	}
 	ac->port[dir].num_periods = periods;
+	ac->port[dir].dsp_buf = 0;
+	atomic_set(&ac->port[dir].hw_ptr, 0);
 
 	spin_unlock_irqrestore(&ac->lock, flags);
 

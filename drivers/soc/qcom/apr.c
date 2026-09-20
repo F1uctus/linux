@@ -27,6 +27,7 @@ enum {
 struct packet_router {
 	struct rpmsg_endpoint *ch;
 	struct device *dev;
+	bool detached;
 	spinlock_t svcs_lock;
 	spinlock_t rx_lock;
 	struct idr svcs_idr;
@@ -60,6 +61,11 @@ int apr_send_pkt(struct apr_device *adev, struct apr_pkt *pkt)
 	int ret;
 
 	spin_lock_irqsave(&adev->svc.lock, flags);
+
+	if (READ_ONCE(apr->detached)) {
+		spin_unlock_irqrestore(&adev->svc.lock, flags);
+		return -ENETRESET;
+	}
 
 	hdr = &pkt->hdr;
 	hdr->src_domain = APR_DOMAIN_APPS;
@@ -655,6 +661,7 @@ static void apr_remove(struct rpmsg_device *rpdev)
 {
 	struct packet_router *apr = dev_get_drvdata(&rpdev->dev);
 
+	WRITE_ONCE(apr->detached, true);
 	pdr_handle_release(apr->pdr);
 	device_for_each_child(&rpdev->dev, NULL, apr_remove_device);
 	destroy_workqueue(apr->rxwq);

@@ -301,6 +301,14 @@ int qcom_snd_parse_of(struct snd_soc_card *card)
 				link->no_pcm = 1;
 				link->ignore_pmdown_time = 1;
 			}
+		} else if (platform) {
+			/* DPCM backend with nothing to configure, e.g. an
+			 * LPASS port wired to another block on the SoC
+			 */
+			link->codecs	 = &snd_soc_dummy_dlc;
+			link->num_codecs = 1;
+			link->no_pcm = 1;
+			link->ignore_pmdown_time = 1;
 		} else {
 			/* DPCM frontend */
 			link->codecs	 = &snd_soc_dummy_dlc;

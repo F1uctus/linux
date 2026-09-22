@@ -12,6 +12,7 @@ struct q6dsp_audio_port_dai_driver_config {
 	const struct snd_soc_dai_ops *q6tdm_ops;
 	const struct snd_soc_dai_ops *q6dma_ops;
 	const struct snd_soc_dai_ops *q6usb_ops;
+	const struct snd_soc_dai_ops *q6bt_sco_ops;
 };
 
 struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,

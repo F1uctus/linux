@@ -169,6 +169,30 @@ static struct snd_soc_dai_driver q6dsp_audio_fe_dais[] = {
 		.id = HDMI_RX,
 		.name = "HDMI",
 	}, {
+		.playback = {
+			.stream_name = "Internal BT SCO Playback",
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_min = 1,
+			.channels_max = 1,
+			.rate_min = 8000,
+			.rate_max = 16000,
+		},
+		.name = "INT_BT_SCO_RX",
+		.id = INT_BT_SCO_RX,
+	}, {
+		.capture = {
+			.stream_name = "Internal BT SCO Capture",
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000,
+			.formats = SNDRV_PCM_FMTBIT_S16_LE,
+			.channels_min = 1,
+			.channels_max = 1,
+			.rate_min = 8000,
+			.rate_max = 16000,
+		},
+		.name = "INT_BT_SCO_TX",
+		.id = INT_BT_SCO_TX,
+	}, {
 		.name = "SLIMBUS_0_RX",
 		.id = SLIMBUS_0_RX,
 		.playback = {
@@ -727,6 +751,9 @@ struct snd_soc_dai_driver *q6dsp_audio_ports_set_config(struct device *dev,
 			break;
 		case USB_RX:
 			q6dsp_audio_fe_dais[i].ops = cfg->q6usb_ops;
+			break;
+		case INT_BT_SCO_RX ... INT_BT_SCO_TX:
+			q6dsp_audio_fe_dais[i].ops = cfg->q6bt_sco_ops;
 			break;
 		default:
 			break;

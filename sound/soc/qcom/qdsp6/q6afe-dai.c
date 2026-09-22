@@ -430,6 +430,10 @@ static int q6afe_dai_prepare(struct snd_pcm_substream *substream,
 		q6afe_cdc_dma_port_prepare(dai_data->port[dai->id],
 					   &dai_data->port_config[dai->id].dma_cfg);
 		break;
+	case INT_BT_SCO_RX ... INT_BT_SCO_TX:
+		q6afe_bt_sco_port_prepare(dai_data->port[dai->id],
+					  &dai_data->port_config[dai->id].bt_sco);
+		break;
 	case USB_RX:
 		q6afe_usb_port_prepare(dai_data->port[dai->id],
 				       &dai_data->port_config[dai->id].usb_audio);
@@ -521,6 +525,8 @@ static int q6afe_mi2s_set_sysclk(struct snd_soc_dai *dai,
 
 static const struct snd_soc_dapm_route q6afe_dapm_routes[] = {
 	{"HDMI Playback", NULL, "HDMI_RX"},
+	{"Internal BT SCO Playback", NULL, "INT_BT_SCO_RX"},
+	{"INT_BT_SCO_TX", NULL, "Internal BT SCO Capture"},
 	{"DISPLAY_PORT_RX_0 Playback", NULL, "DISPLAY_PORT_RX"},
 	{"Slimbus Playback", NULL, "SLIMBUS_0_RX"},
 	{"Slimbus1 Playback", NULL, "SLIMBUS_1_RX"},
@@ -709,6 +715,28 @@ static int msm_dai_q6_dai_remove(struct snd_soc_dai *dai)
 	return 0;
 }
 
+static int q6afe_bt_sco_hw_params(struct snd_pcm_substream *substream,
+				  struct snd_pcm_hw_params *params,
+				  struct snd_soc_dai *dai)
+{
+	struct q6afe_dai_data *dai_data = dev_get_drvdata(dai->dev);
+	struct q6afe_bt_sco_cfg *cfg = &dai_data->port_config[dai->id].bt_sco;
+
+	cfg->sample_rate = params_rate(params);
+	cfg->num_channels = params_channels(params);
+	cfg->bit_width = params_width(params);
+
+	return 0;
+}
+
+static const struct snd_soc_dai_ops q6bt_sco_ops = {
+	.probe		= msm_dai_q6_dai_probe,
+	.remove		= msm_dai_q6_dai_remove,
+	.prepare	= q6afe_dai_prepare,
+	.hw_params	= q6afe_bt_sco_hw_params,
+	.shutdown	= q6afe_dai_shutdown,
+};
+
 static const struct snd_soc_dai_ops q6afe_usb_ops = {
 	.probe		= msm_dai_q6_dai_probe,
 	.prepare	= q6afe_dai_prepare,
@@ -776,6 +804,8 @@ static const struct snd_soc_dai_ops q6dma_ops = {
 
 static const struct snd_soc_dapm_widget q6afe_dai_widgets[] = {
 	SND_SOC_DAPM_AIF_IN("HDMI_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_IN("INT_BT_SCO_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
+	SND_SOC_DAPM_AIF_OUT("INT_BT_SCO_TX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_0_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_1_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_AIF_IN("SLIMBUS_2_RX", NULL, 0, SND_SOC_NOPM, 0, 0),
@@ -1175,6 +1205,7 @@ static int q6afe_dai_dev_probe(struct platform_device *pdev)
 	cfg.q6tdm_ops = &q6tdm_ops;
 	cfg.q6dma_ops = &q6dma_ops;
 	cfg.q6usb_ops = &q6afe_usb_ops;
+	cfg.q6bt_sco_ops = &q6bt_sco_ops;
 	dais = q6dsp_audio_ports_set_config(dev, &cfg, &num_dais);
 
 	return devm_snd_soc_register_component(dev, &q6afe_dai_component, dais, num_dais);

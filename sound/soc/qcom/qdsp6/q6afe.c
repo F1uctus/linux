@@ -53,6 +53,8 @@
 
 /* I2S config specific */
 #define AFE_API_VERSION_I2S_CONFIG	0x1
+#define AFE_PARAM_ID_INTERNAL_BT_FM_CONFIG	0x00010211
+#define AFE_API_VERSION_INTERNAL_BT_FM_CONFIG	0x1
 #define AFE_PORT_I2S_SD0		0x1
 #define AFE_PORT_I2S_SD1		0x2
 #define AFE_PORT_I2S_SD2		0x3
@@ -83,6 +85,8 @@
 #define AFE_PORT_ID_HDMI_OVER_DP_RX	0x6020
 
 /* USB AFE port */
+#define AFE_PORT_ID_INTERNAL_BT_SCO_RX	0x3000
+#define AFE_PORT_ID_INTERNAL_BT_SCO_TX	0x3001
 #define AFE_PORT_ID_USB_RX                       0x7000
 
 #define AFE_API_VERSION_SLIMBUS_CONFIG 0x1
@@ -619,6 +623,13 @@ struct afe_param_id_usb_audio_svc_interval {
 	u32	svc_interval;
 } __packed;
 
+struct afe_param_id_internal_bt_fm_cfg {
+	u32	bt_fm_cfg_minor_version;
+	u16	num_channels;
+	u16	bit_width;
+	u32	sample_rate;
+} __packed;
+
 union afe_port_config {
 	struct afe_param_id_hdmi_multi_chan_audio_cfg hdmi_multi_ch;
 	struct afe_param_id_slimbus_cfg           slim_cfg;
@@ -626,6 +637,7 @@ union afe_port_config {
 	struct afe_param_id_tdm_cfg	tdm_cfg;
 	struct afe_param_id_cdc_dma_cfg	dma_cfg;
 	struct afe_param_id_usb_cfg usb_cfg;
+	struct afe_param_id_internal_bt_fm_cfg bt_fm_cfg;
 } __packed;
 
 
@@ -945,6 +957,10 @@ static struct afe_port_map port_maps[AFE_PORT_MAX] = {
 	[RX_CODEC_DMA_RX_7] = { AFE_PORT_ID_RX_CODEC_DMA_RX_7,
 				RX_CODEC_DMA_RX_7, 1, 1},
 	[USB_RX] = { AFE_PORT_ID_USB_RX, USB_RX, 1, 1},
+	[INT_BT_SCO_RX] = { AFE_PORT_ID_INTERNAL_BT_SCO_RX,
+				INT_BT_SCO_RX, 1, 1},
+	[INT_BT_SCO_TX] = { AFE_PORT_ID_INTERNAL_BT_SCO_TX,
+				INT_BT_SCO_TX, 0, 1},
 	[LPI_MI2S_RX_0] = { AFE_PORT_ID_INT0_MI2S_RX,
 				LPI_MI2S_RX_0, 1, 1},
 	[LPI_MI2S_TX_0] = { AFE_PORT_ID_INT0_MI2S_TX,
@@ -1352,6 +1368,11 @@ int q6afe_port_stop(struct q6afe_port *port)
 	stop->reserved = 0;
 
 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_STOP);
+	/* The DSP keeps its internal ports and answers EFAILED for them */
+	if (ret == -EINVAL && port->result.status == ADSP_EFAILED &&
+	    (port->id == AFE_PORT_ID_INTERNAL_BT_SCO_RX ||
+	     port->id == AFE_PORT_ID_INTERNAL_BT_SCO_TX))
+		ret = 0;
 	if (ret)
 		dev_err(afe->dev, "AFE close failed %d\n", ret);
 
@@ -1533,6 +1554,25 @@ void q6afe_hdmi_port_prepare(struct q6afe_port *port,
 	pcfg->hdmi_multi_ch.bit_width = cfg->bit_width;
 }
 EXPORT_SYMBOL_GPL(q6afe_hdmi_port_prepare);
+
+/**
+ * q6afe_bt_sco_port_prepare() - Prepare the internal BT SCO afe port.
+ *
+ * @port: Instance of afe port
+ * @cfg: BT SCO configuration for the afe port
+ */
+void q6afe_bt_sco_port_prepare(struct q6afe_port *port,
+			       struct q6afe_bt_sco_cfg *cfg)
+{
+	union afe_port_config *pcfg = &port->port_cfg;
+
+	pcfg->bt_fm_cfg.bt_fm_cfg_minor_version =
+					AFE_API_VERSION_INTERNAL_BT_FM_CONFIG;
+	pcfg->bt_fm_cfg.num_channels = cfg->num_channels;
+	pcfg->bt_fm_cfg.bit_width = cfg->bit_width;
+	pcfg->bt_fm_cfg.sample_rate = cfg->sample_rate;
+}
+EXPORT_SYMBOL_GPL(q6afe_bt_sco_port_prepare);
 
 /**
  * q6afe_i2s_port_prepare() - Prepare i2s afe port.
@@ -1755,6 +1795,9 @@ int q6afe_port_start(struct q6afe_port *port)
 	start->port_id = port_id;
 
 	ret = afe_apr_send_pkt(afe, pkt, port, AFE_PORT_CMD_DEVICE_START);
+	/* The DSP runs some internal ports itself and answers EALREADY */
+	if (ret == -EINVAL && port->result.status == ADSP_EALREADY)
+		ret = 0;
 	if (ret)
 		dev_err(afe->dev, "AFE enable for port 0x%x failed %d\n",
 			port_id, ret);
@@ -1851,6 +1894,10 @@ struct q6afe_port *q6afe_port_get_from_id(struct device *dev, int id)
 		break;
 	case AFE_PORT_ID_USB_RX:
 		cfg_type = AFE_PARAM_ID_USB_AUDIO_CONFIG;
+		break;
+	case AFE_PORT_ID_INTERNAL_BT_SCO_RX:
+	case AFE_PORT_ID_INTERNAL_BT_SCO_TX:
+		cfg_type = AFE_PARAM_ID_INTERNAL_BT_FM_CONFIG;
 		break;
 	default:
 		dev_err(dev, "Invalid port id 0x%x\n", port_id);

@@ -235,6 +235,12 @@ struct q6afe_usb_cfg {
 	u16	num_channels;
 };
 
+struct q6afe_bt_sco_cfg {
+	u32 sample_rate;
+	u16 bit_width;
+	u16 num_channels;
+};
+
 struct q6afe_port_config {
 	struct q6afe_hdmi_cfg hdmi;
 	struct q6afe_slim_cfg slim;
@@ -242,6 +248,7 @@ struct q6afe_port_config {
 	struct q6afe_tdm_cfg tdm;
 	struct q6afe_cdc_dma_cfg dma_cfg;
 	struct q6afe_usb_cfg usb_audio;
+	struct q6afe_bt_sco_cfg bt_sco;
 };
 
 struct q6afe_port;
@@ -261,6 +268,8 @@ int q6afe_i2s_port_prepare(struct q6afe_port *port, struct q6afe_i2s_cfg *cfg);
 void q6afe_tdm_port_prepare(struct q6afe_port *port, struct q6afe_tdm_cfg *cfg);
 void q6afe_cdc_dma_port_prepare(struct q6afe_port *port,
 				struct q6afe_cdc_dma_cfg *cfg);
+void q6afe_bt_sco_port_prepare(struct q6afe_port *port,
+			       struct q6afe_bt_sco_cfg *cfg);
 
 int afe_port_send_usb_dev_param(struct q6afe_port *port, int cardidx, int pcmidx);
 int q6afe_port_set_sysclk(struct q6afe_port *port, int clk_id,

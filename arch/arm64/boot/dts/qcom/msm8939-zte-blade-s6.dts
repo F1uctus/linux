@@ -569,6 +569,16 @@
 	reg = <0x0 0x86800000 0x0 0x5500000>;
 };
 
+&q6afedai {
+	dai@153 {
+		reg = <INT_BT_SCO_RX>;
+	};
+
+	dai@154 {
+		reg = <INT_BT_SCO_TX>;
+	};
+};
+
 &sound {
 
 	model = "msm8916";
@@ -576,6 +586,28 @@
 		"AMIC1", "MIC BIAS External1",
 		"AMIC2", "MIC BIAS Internal2",
 		"AMIC3", "MIC BIAS External1";
+
+	sound_link_backend2: backend2-dai-link {
+		link-name = "Internal BT SCO Playback";
+
+		cpu {
+			sound-dai = <&q6afedai INT_BT_SCO_RX>;
+		};
+		platform {
+			sound-dai = <&q6routing>;
+		};
+	};
+
+	sound_link_backend3: backend3-dai-link {
+		link-name = "Internal BT SCO Capture";
+
+		cpu {
+			sound-dai = <&q6afedai INT_BT_SCO_TX>;
+		};
+		platform {
+			sound-dai = <&q6routing>;
+		};
+	};
 };
 
 &thermal_zones {

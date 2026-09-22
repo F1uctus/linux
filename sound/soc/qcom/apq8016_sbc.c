@@ -29,6 +29,7 @@ struct apq8016_sbc_data {
 	struct snd_soc_jack jack;
 	bool jack_setup;
 	int mi2s_clk_count[MI2S_COUNT];
+	unsigned int bt_sco_rate;
 };
 
 #define MIC_CTRL_TER_WS_SLAVE_SEL	BIT(21)
@@ -199,9 +200,14 @@ static int qdsp6_dai_get_lpass_id(struct snd_soc_dai *cpu_dai)
 static int msm8916_qdsp6_dai_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	int mi2s = qdsp6_dai_get_lpass_id(cpu_dai);
+
+	/* Ports internal to the SoC have no pins, clocks or codec to set up */
+	if (mi2s < 0)
+		return 0;
 
 	snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_BP_FP);
-	return apq8016_dai_init(rtd, qdsp6_dai_get_lpass_id(cpu_dai));
+	return apq8016_dai_init(rtd, mi2s);
 }
 
 static int msm8916_qdsp6_startup(struct snd_pcm_substream *substream)
@@ -214,7 +220,7 @@ static int msm8916_qdsp6_startup(struct snd_pcm_substream *substream)
 
 	mi2s = qdsp6_dai_get_lpass_id(cpu_dai);
 	if (mi2s < 0)
-		return mi2s;
+		return 0;
 
 	if (++data->mi2s_clk_count[mi2s] > 1)
 		return 0;
@@ -258,21 +264,73 @@ static int msm8916_qdsp6_be_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 	struct snd_mask *fmt = hw_param_mask(params, SNDRV_PCM_HW_PARAM_FORMAT);
+	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+	struct apq8016_sbc_data *data = snd_soc_card_get_drvdata(rtd->card);
 
-	rate->min = rate->max = 48000;
-	channels->min = channels->max = 2;
+	switch (cpu_dai->id) {
+	case INT_BT_SCO_RX:
+	case INT_BT_SCO_TX:
+		rate->min = rate->max = data->bt_sco_rate;
+		channels->min = channels->max = 1;
+		break;
+	default:
+		rate->min = rate->max = 48000;
+		channels->min = channels->max = 2;
+		break;
+	}
 	snd_mask_set_format(fmt, SNDRV_PCM_FORMAT_S16_LE);
 
 	return 0;
 }
 
+/* 8 kHz for CVSD, 16 kHz for mSBC wideband speech */
+static const char * const bt_sco_rate_text[] = { "8000", "16000" };
+static SOC_ENUM_SINGLE_EXT_DECL(bt_sco_rate_enum, bt_sco_rate_text);
+
+static int bt_sco_rate_get(struct snd_kcontrol *kcontrol,
+			   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
+	struct apq8016_sbc_data *data = snd_soc_card_get_drvdata(card);
+
+	ucontrol->value.enumerated.item[0] = data->bt_sco_rate == 16000;
+	return 0;
+}
+
+static int bt_sco_rate_put(struct snd_kcontrol *kcontrol,
+			   struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
+	struct apq8016_sbc_data *data = snd_soc_card_get_drvdata(card);
+	unsigned int rate;
+
+	if (ucontrol->value.enumerated.item[0] > 1)
+		return -EINVAL;
+	rate = ucontrol->value.enumerated.item[0] ? 16000 : 8000;
+	if (rate == data->bt_sco_rate)
+		return 0;
+	data->bt_sco_rate = rate;
+	return 1;
+}
+
+static const struct snd_kcontrol_new msm8916_qdsp6_snd_controls[] = {
+	SOC_DAPM_PIN_SWITCH("Headphone Jack"),
+	SOC_DAPM_PIN_SWITCH("Mic Jack"),
+	SOC_ENUM_EXT("Internal BT SCO SampleRate", bt_sco_rate_enum,
+		     bt_sco_rate_get, bt_sco_rate_put),
+};
+
 static void msm8916_qdsp6_add_ops(struct snd_soc_card *card)
 {
+	struct apq8016_sbc_data *data = snd_soc_card_get_drvdata(card);
 	struct snd_soc_dai_link *link;
 	int i;
 
 	/* Make it obvious to userspace that QDSP6 is used */
 	card->components = "qdsp6";
+	card->controls = msm8916_qdsp6_snd_controls;
+	card->num_controls = ARRAY_SIZE(msm8916_qdsp6_snd_controls);
+	data->bt_sco_rate = 8000;
 
 	for_each_card_prelinks(card, i, link) {
 		if (link->no_pcm) {

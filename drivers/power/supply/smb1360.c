@@ -323,11 +323,18 @@ static const unsigned int smb1360_usb_extcon_cable[] = {
 	EXTCON_NONE,
 };
 
+/* CFG_BATT_CHG_ICL_REG INPUT_CURR_LIM_MASK values, used in USB_AC_BIT mode */
+static const int smb1360_input_current_limit_ma[] = {
+	300, 400, 450, 500, 600, 700, 800, 850,
+	900, 950, 1000, 1100, 1200, 1300, 1400, 1500,
+};
+
 struct smb1360 {
 	struct device		*dev;
 	struct regmap		*regmap;
 	struct regmap		*fg_regmap;
 	struct power_supply	*psy;
+	struct power_supply	*usb_psy;
 	struct extcon_dev	*edev;
 	struct regulator_dev	*otg_vreg;
 	struct completion	fg_mem_access_granted;
@@ -339,6 +346,7 @@ struct smb1360 {
 	bool shdn_after_pwroff;
 	bool rsense_10mohm;
 	bool initialized;
+	bool usb_online;
 
 	int float_voltage;
 };
@@ -347,7 +355,6 @@ static enum power_supply_property smb1360_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
 	POWER_SUPPLY_PROP_CHARGE_TYPE,
 	POWER_SUPPLY_PROP_HEALTH,
-	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
@@ -637,9 +644,6 @@ static int smb1360_get_property(struct power_supply *psy,
 		return smb1360_get_prop_charge_type(smb, val);
 	case POWER_SUPPLY_PROP_HEALTH:
 		return smb1360_get_prop_batt_health(smb, val);
-	case POWER_SUPPLY_PROP_ONLINE:
-		val->intval = !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT);
-		return 0;
 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
 		return smb1360_read_voltage(smb, SHDW_FG_VTG_NOW, &val->intval);
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
@@ -658,6 +662,71 @@ static int smb1360_get_property(struct power_supply *psy,
 	}
 }
 
+static int smb1360_get_prop_input_current_limit(struct smb1360 *smb,
+						union power_supply_propval *val)
+{
+	unsigned int mode, icl;
+	int ret;
+
+	ret = regmap_read(smb->regmap, CMD_IL_REG, &mode);
+	if (ret)
+		return ret;
+
+	switch (mode & USB_CTRL_MASK) {
+	case USB_100_BIT:
+		val->intval = 100000;
+		return 0;
+	case USB_500_BIT:
+		val->intval = 500000;
+		return 0;
+	}
+
+	ret = regmap_read(smb->regmap, CFG_BATT_CHG_ICL_REG, &icl);
+	if (ret)
+		return ret;
+
+	val->intval = smb1360_input_current_limit_ma[icl & INPUT_CURR_LIM_MASK] * 1000;
+	return 0;
+}
+
+static enum power_supply_property smb1360_usb_props[] = {
+	POWER_SUPPLY_PROP_ONLINE,
+	POWER_SUPPLY_PROP_USB_TYPE,
+	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+};
+
+static int smb1360_usb_get_property(struct power_supply *psy,
+				    enum power_supply_property psp,
+				    union power_supply_propval *val)
+{
+	struct smb1360 *smb = power_supply_get_drvdata(psy);
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_ONLINE:
+		val->intval = smb->usb_online;
+		return 0;
+	case POWER_SUPPLY_PROP_USB_TYPE:
+		val->intval = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+		return 0;
+	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+		return smb1360_get_prop_input_current_limit(smb, val);
+	default:
+		return -EINVAL;
+	}
+}
+
+static void smb1360_update_usb_online(struct smb1360 *smb)
+{
+	bool online = !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT);
+
+	if (online == smb->usb_online)
+		return;
+
+	smb->usb_online = online;
+	extcon_set_state_sync(smb->edev, EXTCON_USB, online);
+	power_supply_changed(smb->usb_psy);
+}
+
 static irqreturn_t smb1360_irq(int irq, void *data)
 {
 	struct smb1360 *smb = data;
@@ -667,8 +736,7 @@ static irqreturn_t smb1360_irq(int irq, void *data)
 	if (ret < 0)
 		return IRQ_NONE;
 
-	extcon_set_state_sync(smb->edev, EXTCON_USB,
-			      !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT));
+	smb1360_update_usb_online(smb);
 
 	if (smb->irqstat[IRQ_F] & (IRQ_F_OTG_FAIL_BIT | IRQ_F_OTG_OC_BIT)) {
 		dev_warn(smb->dev, "otg error: %d\n", smb->irqstat[IRQ_F]);
@@ -1677,6 +1745,19 @@ static const struct power_supply_desc smb1360_battery_desc = {
 	.num_properties		= ARRAY_SIZE(smb1360_props),
 };
 
+static const struct power_supply_desc smb1360_usb_desc = {
+	.name			= "smb1360-usb",
+	.type			= POWER_SUPPLY_TYPE_USB,
+	.usb_types		= BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN),
+	.get_property		= smb1360_usb_get_property,
+	.properties		= smb1360_usb_props,
+	.num_properties		= ARRAY_SIZE(smb1360_usb_props),
+};
+
+static char *smb1360_usb_supplied_to[] = {
+	"smb1360-battery",
+};
+
 static int smb1360_probe(struct i2c_client *client)
 {
 	int ret;
@@ -1760,14 +1841,23 @@ static int smb1360_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
-	extcon_set_state_sync(smb->edev, EXTCON_USB,
-			      !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT));
+	smb->usb_online = !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT);
+	extcon_set_state_sync(smb->edev, EXTCON_USB, smb->usb_online);
 
 	ret = smb1360_register_vbus_regulator(smb);
 	if (ret < 0)
 		return ret;
 
 	psy_cfg.drv_data = smb;
+	psy_cfg.supplied_to = smb1360_usb_supplied_to;
+	psy_cfg.num_supplicants = ARRAY_SIZE(smb1360_usb_supplied_to);
+	smb->usb_psy = devm_power_supply_register(dev, &smb1360_usb_desc, &psy_cfg);
+	if (IS_ERR(smb->usb_psy))
+		return dev_err_probe(dev, PTR_ERR(smb->usb_psy),
+				     "failed to register usb power supply\n");
+
+	psy_cfg.supplied_to = NULL;
+	psy_cfg.num_supplicants = 0;
 	smb->psy = devm_power_supply_register(&client->dev, &smb1360_battery_desc,
 					      &psy_cfg);
 	if (IS_ERR(smb->psy)) {

@@ -262,6 +262,7 @@
 		pinctrl-names = "default";
 
 		qcom,float-voltage-mv = <4350>;
+		qcom,long-life-float-voltage-mv = <4100>;
 		qcom,iterm-ma = <125>;
 		qcom,charging-timeout = <1536>;
 		qcom,recharge-thresh-mv = <200>;
@@ -544,13 +545,14 @@
 };
 
 &usb {
-	extcon = <&usb_id>, <&usb_id>;
+	extcon = <&charger>, <&usb_id>;
 	dr_mode = "peripheral";
+	usb-psy-name = "smb1360-usb";
 	status = "okay";
 };
 
 &usb_hs_phy {
-	extcon = <&usb_id>;
+	extcon = <&charger>;
 };
 
 &wcnss {

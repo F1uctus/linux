@@ -66,6 +66,12 @@ properties:
           - description: register offset
           - description: phy index
 
+  usb-psy-name:
+    description:
+      Name of the USB power supply that receives the BC1.2 charger type
+      detected when VBUS appears, and the input current limit for it.
+    $ref: /schemas/types.yaml#/definitions/string
+
   nvidia,phy:
     description: phandle of usb phy that connects to the port. Use "phys" instead.
     $ref: /schemas/types.yaml#/definitions/phandle

@@ -211,6 +211,7 @@ struct hw_bank {
  * @wakeup_int: if wakeup interrupt occur
  * @rev: The revision number for controller
  * @mutex: protect code from concorrent running when doing role switch
+ * @vbus_lock: serializes VBUS sessions with gadget driver start and stop
  */
 struct ci_hdrc {
 	struct device			*dev;
@@ -267,6 +268,7 @@ struct ci_hdrc {
 	bool				wakeup_int;
 	enum ci_revision		rev;
 	struct mutex                    mutex;
+	struct mutex			vbus_lock;
 };
 
 static inline struct ci_role_driver *ci_role(struct ci_hdrc *ci)

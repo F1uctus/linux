@@ -1900,6 +1900,8 @@ static int ci_udc_vbus_session(struct usb_gadget *_gadget, int is_active)
 	unsigned long flags;
 	int ret = 0;
 
+	guard(mutex)(&ci->vbus_lock);
+
 	spin_lock_irqsave(&ci->lock, flags);
 	ci->vbus_active = is_active;
 	spin_unlock_irqrestore(&ci->lock, flags);
@@ -2146,6 +2148,8 @@ static int ci_udc_start(struct usb_gadget *gadget,
 	if (retval)
 		return retval;
 
+	guard(mutex)(&ci->vbus_lock);
+
 	ci->driver = driver;
 
 	/* Start otg fsm for B-device */
@@ -2186,6 +2190,7 @@ static int ci_udc_stop(struct usb_gadget *gadget)
 	struct ci_hdrc *ci = container_of(gadget, struct ci_hdrc, gadget);
 	unsigned long flags;
 
+	mutex_lock(&ci->vbus_lock);
 	spin_lock_irqsave(&ci->lock, flags);
 	ci->driver = NULL;
 
@@ -2201,6 +2206,7 @@ static int ci_udc_stop(struct usb_gadget *gadget)
 	}
 
 	spin_unlock_irqrestore(&ci->lock, flags);
+	mutex_unlock(&ci->vbus_lock);
 
 	ci_udc_stop_for_otg_fsm(ci);
 	return 0;
@@ -2431,6 +2437,7 @@ int ci_hdrc_gadget_init(struct ci_hdrc *ci)
 	rdrv->name	= "gadget";
 
 	ci->roles[CI_ROLE_GADGET] = rdrv;
+	mutex_init(&ci->vbus_lock);
 
 	/* Pull down DP for possible charger detection */
 	hw_write(ci, OP_USBCMD, USBCMD_RS, 0);

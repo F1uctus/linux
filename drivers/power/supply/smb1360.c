@@ -9,7 +9,6 @@
  *  - Implement more power supply properties, e.g.
  *    - POWER_SUPPLY_PROP_TEMP_{,ALERT_}{MIN,MAX}
  *    - POWER_SUPPLY_PROP_CAPACITY_ALERT_{MIN,MAX}
- *    - POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT
  */
 
 #ifdef CONFIG_SMB1360_DEBUG
@@ -266,6 +265,8 @@
 #define SMB1360_POWERON_DELAY_MS	2000
 #define SMB1360_FG_RESET_DELAY_MS	1500
 
+#define SMB1360_DEFAULT_ICL_UA		800000
+
 /* FG registers (on different I2C address) */
 #define FG_I2C_CFG_MASK			GENMASK(1, 0)
 #define FG_CFG_I2C_ADDR			0x1
@@ -351,6 +352,7 @@ struct smb1360 {
 	bool initialized;
 	bool usb_online;
 	bool charge_restart_pending;
+	enum power_supply_usb_type usb_type;
 
 	int float_voltage;
 	int long_life_float_voltage;
@@ -791,6 +793,34 @@ static int smb1360_get_prop_input_current_limit(struct smb1360 *smb,
 	return 0;
 }
 
+static int smb1360_set_input_current_limit(struct smb1360 *smb, int current_ua)
+{
+	int ret, i;
+
+	if (current_ua < 0)
+		return -EINVAL;
+
+	if (current_ua <= 500000)
+		return regmap_update_bits(smb->regmap, CMD_IL_REG, USB_CTRL_MASK,
+					  current_ua <= 100000 ? USB_100_BIT : USB_500_BIT);
+
+	for (i = ARRAY_SIZE(smb1360_input_current_limit_ma) - 1; i > 0; i--)
+		if (smb1360_input_current_limit_ma[i] * 1000 <= current_ua)
+			break;
+
+	ret = regmap_update_bits(smb->regmap, CFG_BATT_CHG_ICL_REG,
+				 INPUT_CURR_LIM_MASK, i);
+	if (ret)
+		return ret;
+
+	/* A new AC limit only takes effect when entered from USB500 */
+	ret = regmap_update_bits(smb->regmap, CMD_IL_REG, USB_CTRL_MASK, USB_500_BIT);
+	if (ret)
+		return ret;
+
+	return regmap_update_bits(smb->regmap, CMD_IL_REG, USB_CTRL_MASK, USB_AC_BIT);
+}
+
 static enum power_supply_property smb1360_usb_props[] = {
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_USB_TYPE,
@@ -803,12 +833,14 @@ static int smb1360_usb_get_property(struct power_supply *psy,
 {
 	struct smb1360 *smb = power_supply_get_drvdata(psy);
 
+	guard(mutex)(&smb->lock);
+
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
 		val->intval = smb->usb_online;
 		return 0;
 	case POWER_SUPPLY_PROP_USB_TYPE:
-		val->intval = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+		val->intval = smb->usb_type;
 		return 0;
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		return smb1360_get_prop_input_current_limit(smb, val);
@@ -817,14 +849,68 @@ static int smb1360_usb_get_property(struct power_supply *psy,
 	}
 }
 
+static int smb1360_usb_set_property(struct power_supply *psy,
+				    enum power_supply_property psp,
+				    const union power_supply_propval *val)
+{
+	struct smb1360 *smb = power_supply_get_drvdata(psy);
+	int ret = 0;
+
+	scoped_guard(mutex, &smb->lock) {
+		if (!smb->usb_online)
+			return -ENODEV;
+
+		switch (psp) {
+		case POWER_SUPPLY_PROP_USB_TYPE:
+			switch (val->intval) {
+			case POWER_SUPPLY_USB_TYPE_UNKNOWN:
+			case POWER_SUPPLY_USB_TYPE_SDP:
+			case POWER_SUPPLY_USB_TYPE_CDP:
+			case POWER_SUPPLY_USB_TYPE_DCP:
+				smb->usb_type = val->intval;
+				break;
+			default:
+				return -EINVAL;
+			}
+			break;
+		case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+			ret = smb1360_set_input_current_limit(smb, val->intval);
+			break;
+		default:
+			return -EINVAL;
+		}
+	}
+
+	if (!ret)
+		power_supply_changed(psy);
+	return ret;
+}
+
+static int smb1360_usb_property_is_writeable(struct power_supply *psy,
+					     enum power_supply_property psp)
+{
+	return psp == POWER_SUPPLY_PROP_USB_TYPE ||
+	       psp == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT;
+}
+
 static void smb1360_update_usb_online(struct smb1360 *smb)
 {
 	bool online = !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT);
+	int ret = 0;
 
-	if (online == smb->usb_online)
-		return;
+	scoped_guard(mutex, &smb->lock) {
+		if (online == smb->usb_online)
+			return;
 
-	smb->usb_online = online;
+		smb->usb_online = online;
+		if (!online) {
+			smb->usb_type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+			ret = smb1360_set_input_current_limit(smb, SMB1360_DEFAULT_ICL_UA);
+		}
+	}
+	if (ret)
+		dev_err(smb->dev, "couldn't restore input current limit: %d\n", ret);
+
 	extcon_set_state_sync(smb->edev, EXTCON_USB, online);
 	power_supply_changed(smb->usb_psy);
 }
@@ -1747,18 +1833,6 @@ static int smb1360_hw_init(struct i2c_client *client)
 
 	/*
 	 * TODO: This is a temporary solution
-	 * Set input current limit to 800 mA. This is a compromise between
-	 * charging speed (when attached to a wall charger) and supply voltage
-	 * drop (when attached to a PC). To implement correctly, this should
-	 * be decided in runtime based on connector type detection.
-	 */
-	ret = regmap_update_bits(smb->regmap, CFG_BATT_CHG_ICL_REG,
-				 INPUT_CURR_LIM_MASK, 0x06);
-	if (ret < 0)
-		return ret;
-
-	/*
-	 * TODO: This is a temporary solution
 	 * Set the fastcharge current to 900 mA. That's the maximal current
 	 * that acctually goes into the battery. It mainly comes into play
 	 * when using parallel-charging, where a secondary charger chip is
@@ -1769,14 +1843,7 @@ static int smb1360_hw_init(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
-	/*
-	 * TODO: This is a temporary solution
-	 * Set the USB charging current bit to AC instead of default USB_500.
-	 * To implement correctly, this should be decided in runtime based on
-	 * connector type detection.
-	 */
-	ret = regmap_update_bits(smb->regmap, CMD_IL_REG, USB_CTRL_MASK,
-				 USB_AC_BIT);
+	ret = smb1360_set_input_current_limit(smb, SMB1360_DEFAULT_ICL_UA);
 	if (ret < 0)
 		return ret;
 
@@ -1873,8 +1940,13 @@ static const struct power_supply_desc smb1360_battery_desc = {
 static const struct power_supply_desc smb1360_usb_desc = {
 	.name			= "smb1360-usb",
 	.type			= POWER_SUPPLY_TYPE_USB,
-	.usb_types		= BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN),
+	.usb_types		= BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
+				  BIT(POWER_SUPPLY_USB_TYPE_SDP) |
+				  BIT(POWER_SUPPLY_USB_TYPE_CDP) |
+				  BIT(POWER_SUPPLY_USB_TYPE_DCP),
 	.get_property		= smb1360_usb_get_property,
+	.set_property		= smb1360_usb_set_property,
+	.property_is_writeable	= smb1360_usb_property_is_writeable,
 	.properties		= smb1360_usb_props,
 	.num_properties		= ARRAY_SIZE(smb1360_usb_props),
 };
@@ -1959,16 +2031,7 @@ static int smb1360_probe(struct i2c_client *client)
 		return ret;
 	}
 
-	smb->edev = devm_extcon_dev_allocate(dev, smb1360_usb_extcon_cable);
-	if (IS_ERR(smb->edev))
-		return PTR_ERR(smb->edev);
-
-	ret = devm_extcon_dev_register(dev, smb->edev);
-	if (ret < 0)
-		return ret;
-
 	smb->usb_online = !(smb->irqstat[IRQ_E] & IRQ_E_USBIN_UV_BIT);
-	extcon_set_state_sync(smb->edev, EXTCON_USB, smb->usb_online);
 
 	ret = smb1360_register_vbus_regulator(smb);
 	if (ret < 0)
@@ -1997,6 +2060,17 @@ static int smb1360_probe(struct i2c_client *client)
 		ret = PTR_ERR(smb->psy);
 		return ret;
 	}
+
+	/* VBUS consumers may configure smb1360-usb once they see the extcon */
+	smb->edev = devm_extcon_dev_allocate(dev, smb1360_usb_extcon_cable);
+	if (IS_ERR(smb->edev))
+		return PTR_ERR(smb->edev);
+
+	ret = devm_extcon_dev_register(dev, smb->edev);
+	if (ret < 0)
+		return ret;
+
+	extcon_set_state_sync(smb->edev, EXTCON_USB, smb->usb_online);
 
 	if (client->irq) {
 		ret = devm_request_threaded_irq(&client->dev, client->irq, NULL,

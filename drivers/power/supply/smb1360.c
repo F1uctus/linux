@@ -21,6 +21,7 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/power_supply.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
@@ -339,6 +340,8 @@ struct smb1360 {
 	struct regulator_dev	*otg_vreg;
 	struct completion	fg_mem_access_granted;
 	struct delayed_work	delayed_init_work;
+	struct power_supply_desc battery_desc;
+	struct mutex		lock;
 
 	unsigned int revision;
 	u8 irqstat[IRQ_COUNT];
@@ -347,8 +350,11 @@ struct smb1360 {
 	bool rsense_10mohm;
 	bool initialized;
 	bool usb_online;
+	bool charge_restart_pending;
 
 	int float_voltage;
+	int long_life_float_voltage;
+	int charge_type;
 };
 
 static enum power_supply_property smb1360_props[] = {
@@ -360,7 +366,10 @@ static enum power_supply_property smb1360_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX,
 	POWER_SUPPLY_PROP_CAPACITY,
-	POWER_SUPPLY_PROP_TEMP
+	POWER_SUPPLY_PROP_TEMP,
+	POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
+	/* last: only with a long-life float voltage */
+	POWER_SUPPLY_PROP_CHARGE_TYPES,
 };
 
 #define EXPONENT_MASK		0xF800
@@ -523,6 +532,11 @@ static int smb1360_get_prop_charge_type(struct smb1360 *smb,
 	int ret;
 	unsigned int reg;
 
+	if (smb->long_life_float_voltage) {
+		val->intval = READ_ONCE(smb->charge_type);
+		return 0;
+	}
+
 	ret = regmap_read(smb->regmap, STATUS_3_REG, &reg);
 	if (ret) {
 		val->intval = POWER_SUPPLY_CHARGE_TYPE_UNKNOWN;
@@ -545,6 +559,54 @@ static int smb1360_get_prop_charge_type(struct smb1360 *smb,
 		break;
 	}
 
+	return 0;
+}
+
+static int smb1360_set_charge_type(struct smb1360 *smb, int charge_type)
+{
+	unsigned int cmd;
+	int ret, voltage;
+
+	if (!smb->long_life_float_voltage ||
+	    (charge_type != POWER_SUPPLY_CHARGE_TYPE_FAST &&
+	     charge_type != POWER_SUPPLY_CHARGE_TYPE_LONGLIFE))
+		return -EINVAL;
+
+	guard(mutex)(&smb->lock);
+
+	if (charge_type == smb->charge_type && !smb->charge_restart_pending)
+		return 0;
+
+	voltage = charge_type == POWER_SUPPLY_CHARGE_TYPE_LONGLIFE ?
+		  smb->long_life_float_voltage : smb->float_voltage;
+	ret = regmap_update_bits(smb->regmap, BATT_CHG_FLT_VTG_REG, VFLOAT_MASK,
+				 (voltage - MIN_FLOAT_MV) / VFLOAT_STEP_MV);
+	if (ret)
+		return ret;
+
+	/* Toggling CMD_CHG_EN restarts a terminated charge cycle */
+	if (charge_type == POWER_SUPPLY_CHARGE_TYPE_FAST &&
+	    (READ_ONCE(smb->irqstat[IRQ_C]) & IRQ_C_CHG_TERM_BIT)) {
+		ret = regmap_read(smb->regmap, CMD_CHG_REG, &cmd);
+		if (ret)
+			return ret;
+
+		if (cmd & CMD_CHG_EN) {
+			ret = regmap_clear_bits(smb->regmap, CMD_CHG_REG, CMD_CHG_EN);
+			if (ret)
+				return ret;
+			smb->charge_restart_pending = true;
+		}
+	}
+
+	if (smb->charge_restart_pending) {
+		ret = regmap_set_bits(smb->regmap, CMD_CHG_REG, CMD_CHG_EN);
+		if (ret)
+			return ret;
+		smb->charge_restart_pending = false;
+	}
+
+	WRITE_ONCE(smb->charge_type, charge_type);
 	return 0;
 }
 
@@ -636,11 +698,14 @@ static int smb1360_get_property(struct power_supply *psy,
 				union power_supply_propval *val)
 {
 	struct smb1360 *smb = power_supply_get_drvdata(psy);
+	unsigned int reg;
+	int ret;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 		return smb1360_get_prop_batt_status(smb, val);
 	case POWER_SUPPLY_PROP_CHARGE_TYPE:
+	case POWER_SUPPLY_PROP_CHARGE_TYPES:
 		return smb1360_get_prop_charge_type(smb, val);
 	case POWER_SUPPLY_PROP_HEALTH:
 		return smb1360_get_prop_batt_health(smb, val);
@@ -653,6 +718,12 @@ static int smb1360_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
 		val->intval = smb->float_voltage * 1000;
 		return 0;
+	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
+		ret = regmap_read(smb->regmap, BATT_CHG_FLT_VTG_REG, &reg);
+		if (ret)
+			return ret;
+		val->intval = ((reg & VFLOAT_MASK) * VFLOAT_STEP_MV + MIN_FLOAT_MV) * 1000;
+		return 0;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		return smb1360_get_prop_batt_capacity(smb, val);
 	case POWER_SUPPLY_PROP_TEMP:
@@ -660,6 +731,37 @@ static int smb1360_get_property(struct power_supply *psy,
 	default:
 		return -EINVAL;
 	}
+}
+
+static int smb1360_set_property(struct power_supply *psy,
+				enum power_supply_property psp,
+				const union power_supply_propval *val)
+{
+	struct smb1360 *smb = power_supply_get_drvdata(psy);
+	int ret;
+
+	switch (psp) {
+	case POWER_SUPPLY_PROP_CHARGE_TYPE:
+	case POWER_SUPPLY_PROP_CHARGE_TYPES:
+		ret = smb1360_set_charge_type(smb, val->intval);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (!ret)
+		power_supply_changed(psy);
+	return ret;
+}
+
+static int smb1360_property_is_writeable(struct power_supply *psy,
+					 enum power_supply_property psp)
+{
+	struct smb1360 *smb = power_supply_get_drvdata(psy);
+
+	return (psp == POWER_SUPPLY_PROP_CHARGE_TYPE ||
+		psp == POWER_SUPPLY_PROP_CHARGE_TYPES) &&
+	       smb->long_life_float_voltage;
 }
 
 static int smb1360_get_prop_input_current_limit(struct smb1360 *smb,
@@ -1358,6 +1460,23 @@ static int smb1360_float_voltage_set(struct smb1360 *smb)
 				  BATT_CHG_FLT_VTG_REG, VFLOAT_MASK, val);
 }
 
+static int smb1360_long_life_init(struct smb1360 *smb)
+{
+	u32 val;
+
+	smb->charge_type = POWER_SUPPLY_CHARGE_TYPE_FAST;
+
+	if (device_property_read_u32(smb->dev, "qcom,long-life-float-voltage-mv", &val))
+		return 0;
+
+	if (!device_property_present(smb->dev, "qcom,float-voltage-mv") ||
+	    val < MIN_FLOAT_MV || val > smb->float_voltage)
+		return -EINVAL;
+
+	smb->long_life_float_voltage = val;
+	return 0;
+}
+
 static int smb1360_iterm_set(struct smb1360 *smb)
 {
 	int ret, iterm_ma;
@@ -1665,6 +1784,10 @@ static int smb1360_hw_init(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
+	ret = smb1360_long_life_init(smb);
+	if (ret)
+		return ret;
+
 	ret = smb1360_iterm_set(smb);
 	if (ret < 0)
 		return ret;
@@ -1741,8 +1864,10 @@ static const struct power_supply_desc smb1360_battery_desc = {
 	.name			= "smb1360-battery",
 	.type			= POWER_SUPPLY_TYPE_BATTERY,
 	.get_property		= smb1360_get_property,
+	.set_property		= smb1360_set_property,
+	.property_is_writeable	= smb1360_property_is_writeable,
 	.properties		= smb1360_props,
-	.num_properties		= ARRAY_SIZE(smb1360_props),
+	.num_properties		= ARRAY_SIZE(smb1360_props) - 1,
 };
 
 static const struct power_supply_desc smb1360_usb_desc = {
@@ -1777,6 +1902,7 @@ static int smb1360_probe(struct i2c_client *client)
 		return -EINVAL;
 
 	smb->dev = dev;
+	mutex_init(&smb->lock);
 
 	smb->regmap = devm_regmap_init_i2c(client, &smb1360_regmap_config);
 	if (IS_ERR(smb->regmap)) {
@@ -1858,7 +1984,13 @@ static int smb1360_probe(struct i2c_client *client)
 
 	psy_cfg.supplied_to = NULL;
 	psy_cfg.num_supplicants = 0;
-	smb->psy = devm_power_supply_register(&client->dev, &smb1360_battery_desc,
+	smb->battery_desc = smb1360_battery_desc;
+	if (smb->long_life_float_voltage) {
+		smb->battery_desc.num_properties = ARRAY_SIZE(smb1360_props);
+		smb->battery_desc.charge_types = BIT(POWER_SUPPLY_CHARGE_TYPE_FAST) |
+						 BIT(POWER_SUPPLY_CHARGE_TYPE_LONGLIFE);
+	}
+	smb->psy = devm_power_supply_register(&client->dev, &smb->battery_desc,
 					      &psy_cfg);
 	if (IS_ERR(smb->psy)) {
 		dev_err(&client->dev, "failed to register power supply\n");

@@ -42,6 +42,15 @@ properties:
       The maximum voltage up to which the battery is charged.
       This value is in mV.
 
+  qcom,long-life-float-voltage-mv:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Float voltage in mV of the Long Life charge type. When present, the
+      battery offers the Fast and Long Life charge types, Fast charging to
+      qcom,float-voltage-mv.
+    minimum: 3460
+    maximum: 4730
+
   qcom,iterm-ma:
     $ref: /schemas/types.yaml#/definitions/uint32
     description:
@@ -206,6 +215,7 @@ dependencies:
   qcom,otp-hot-bat-decidegc: [ 'qcom,otp-hard-jeita-config' ]
   qcom,otp-cold-bat-decidegc: [ 'qcom,otp-hard-jeita-config' ]
   qcom,fg-cc-soc-coeff: [ 'qcom,fg-batt-capacity-mah' ]
+  qcom,long-life-float-voltage-mv: [ 'qcom,float-voltage-mv' ]
 
 required:
   - compatible

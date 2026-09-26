@@ -41,6 +41,8 @@ config USB_CHIPIDEA_PCI
 
 config USB_CHIPIDEA_MSM
 	tristate "Enable MSM hsusb glue driver" if EXPERT
+	depends on PHY_QCOM_USB_HS || !PHY_QCOM_USB_HS
+	depends on POWER_SUPPLY || !POWER_SUPPLY
 	default USB_CHIPIDEA
 
 config USB_CHIPIDEA_NPCM

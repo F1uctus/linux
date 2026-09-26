@@ -13,6 +13,8 @@
 #include <linux/reset-controller.h>
 #include <linux/extcon.h>
 #include <linux/of.h>
+#include <linux/phy/phy-qcom-usb-hs.h>
+#include <linux/power_supply.h>
 
 #include "ci.h"
 
@@ -33,6 +35,9 @@
 #define HS_PHY_DIG_CLAMP_N		BIT(16)
 #define HS_PHY_POR_ASSERT		BIT(0)
 
+#define SDP_CURRENT_UA			500000
+#define DCP_CURRENT_UA			1500000
+
 struct ci_hdrc_msm {
 	struct platform_device *ci;
 	struct clk *core_clk;
@@ -43,6 +48,7 @@ struct ci_hdrc_msm {
 	bool secondary_phy;
 	bool hsic;
 	void __iomem *base;
+	const char *usb_psy_name;
 };
 
 static int
@@ -76,6 +82,78 @@ static const struct reset_control_ops ci_hdrc_msm_reset_ops = {
 	.reset = ci_hdrc_msm_por_reset,
 };
 
+static int ci_hdrc_msm_phy_init(struct ci_hdrc *ci)
+{
+	struct ci_hdrc_msm *msm_ci = dev_get_drvdata(ci->dev->parent);
+	int ret;
+
+	hw_phymode_configure(ci);
+	if (msm_ci->secondary_phy) {
+		u32 val = readl_relaxed(msm_ci->base + HS_PHY_SEC_CTRL);
+		val |= HS_PHY_DIG_CLAMP_N;
+		writel_relaxed(val, msm_ci->base + HS_PHY_SEC_CTRL);
+	}
+
+	ret = phy_init(ci->phy);
+	if (ret)
+		return ret;
+
+	ret = phy_power_on(ci->phy);
+	if (ret)
+		phy_exit(ci->phy);
+	return ret;
+}
+
+static void ci_hdrc_msm_phy_exit(struct ci_hdrc *ci)
+{
+	phy_power_off(ci->phy);
+	phy_exit(ci->phy);
+}
+
+static void ci_hdrc_msm_detect_charger(struct ci_hdrc *ci)
+{
+	struct device *dev = ci->dev->parent;
+	struct ci_hdrc_msm *msm_ci = dev_get_drvdata(dev);
+	enum power_supply_usb_type type = POWER_SUPPLY_USB_TYPE_UNKNOWN;
+	union power_supply_propval val;
+	struct power_supply *psy;
+	int ret;
+
+	ret = ci_hdrc_msm_phy_init(ci);
+	if (!ret) {
+		ret = qcom_usb_hs_phy_detect_charger(ci->phy, &type);
+		ci_hdrc_msm_phy_exit(ci);
+	}
+	if (ret == -ENOTCONN)
+		return;
+	if (ret)
+		dev_warn(dev, "charger detection failed: %d\n", ret);
+
+	psy = power_supply_get_by_name(msm_ci->usb_psy_name);
+	if (!psy) {
+		dev_warn(dev, "no power supply %s\n", msm_ci->usb_psy_name);
+		return;
+	}
+
+	val.intval = type;
+	ret = power_supply_set_property(psy, POWER_SUPPLY_PROP_USB_TYPE, &val);
+	if (!ret) {
+		if (type == POWER_SUPPLY_USB_TYPE_CDP ||
+		    type == POWER_SUPPLY_USB_TYPE_DCP)
+			val.intval = DCP_CURRENT_UA;
+		else
+			val.intval = SDP_CURRENT_UA;
+		ret = power_supply_set_property(psy,
+						POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+						&val);
+	}
+	power_supply_put(psy);
+
+	/* -ENODEV: the input went away before the result was applied */
+	if (ret && ret != -ENODEV)
+		dev_warn(dev, "couldn't apply charger type: %d\n", ret);
+}
+
 static int ci_hdrc_msm_notify_event(struct ci_hdrc *ci, unsigned event)
 {
 	struct device *dev = ci->dev->parent;
@@ -86,22 +164,9 @@ static int ci_hdrc_msm_notify_event(struct ci_hdrc *ci, unsigned event)
 	case CI_HDRC_CONTROLLER_RESET_EVENT:
 		dev_dbg(dev, "CI_HDRC_CONTROLLER_RESET_EVENT received\n");
 
-		hw_phymode_configure(ci);
-		if (msm_ci->secondary_phy) {
-			u32 val = readl_relaxed(msm_ci->base + HS_PHY_SEC_CTRL);
-			val |= HS_PHY_DIG_CLAMP_N;
-			writel_relaxed(val, msm_ci->base + HS_PHY_SEC_CTRL);
-		}
-
-		ret = phy_init(ci->phy);
+		ret = ci_hdrc_msm_phy_init(ci);
 		if (ret)
 			return ret;
-
-		ret = phy_power_on(ci->phy);
-		if (ret) {
-			phy_exit(ci->phy);
-			return ret;
-		}
 
 		/* use AHB transactor, allow posted data writes */
 		hw_write_id_reg(ci, HS_PHY_AHB_MODE, 0xffffffff, 0x8);
@@ -125,8 +190,11 @@ static int ci_hdrc_msm_notify_event(struct ci_hdrc *ci, unsigned event)
 		break;
 	case CI_HDRC_CONTROLLER_STOPPED_EVENT:
 		dev_dbg(dev, "CI_HDRC_CONTROLLER_STOPPED_EVENT received\n");
-		phy_power_off(ci->phy);
-		phy_exit(ci->phy);
+		ci_hdrc_msm_phy_exit(ci);
+		break;
+	case CI_HDRC_CONTROLLER_VBUS_EVENT:
+		if (msm_ci->usb_psy_name && ci->vbus_active)
+			ci_hdrc_msm_detect_charger(ci);
 		break;
 	default:
 		dev_dbg(dev, "unknown ci_hdrc event\n");
@@ -191,6 +259,8 @@ static int ci_hdrc_msm_probe(struct platform_device *pdev)
 			  CI_HDRC_OVERRIDE_AHB_BURST |
 			  CI_HDRC_OVERRIDE_PHY_CONTROL;
 	ci->pdata.notify_event = ci_hdrc_msm_notify_event;
+	of_property_read_string(pdev->dev.of_node, "usb-psy-name",
+				&ci->usb_psy_name);
 
 	reset = devm_reset_control_get(&pdev->dev, "core");
 	if (IS_ERR(reset))

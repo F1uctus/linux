@@ -226,8 +226,10 @@ static int msm8916_qdsp6_startup(struct snd_pcm_substream *substream)
 		return 0;
 
 	ret = snd_soc_dai_set_sysclk(cpu_dai, LPAIF_BIT_CLK, MI2S_BCLK_RATE, 0);
-	if (ret)
+	if (ret) {
+		data->mi2s_clk_count[mi2s]--;
 		dev_err(card->dev, "Failed to enable LPAIF bit clk: %d\n", ret);
+	}
 	return ret;
 }
 

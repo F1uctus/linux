@@ -845,7 +845,9 @@ static int msm8916_wcd_digital_component_probe(struct snd_soc_component *compone
 
 	snd_soc_component_set_drvdata(component, priv);
 
-	return 0;
+	regcache_mark_dirty(component->regmap);
+
+	return regcache_sync(component->regmap);
 }
 
 static int msm8916_wcd_digital_component_set_sysclk(struct snd_soc_component *component,
@@ -1160,7 +1162,7 @@ static const struct regmap_config msm8916_codec_regmap_config = {
 	.reg_stride = 4,
 	.val_bits = 32,
 	.max_register = LPASS_CDC_TX2_DMIC_CTL,
-	.cache_type = REGCACHE_FLAT,
+	.cache_type = REGCACHE_FLAT_S,
 };
 
 static int msm8916_wcd_digital_probe(struct platform_device *pdev)

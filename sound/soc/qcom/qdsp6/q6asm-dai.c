@@ -196,7 +196,7 @@ static void event_handler(uint32_t opcode, uint32_t token,
 		break;
 	case ASM_CLIENT_EVENT_DATA_READ_DONE:
 		snd_pcm_period_elapsed(substream);
-		if (prtd->state == Q6ASM_STREAM_RUNNING)
+		if (prtd->state == Q6ASM_STREAM_RUNNING && snd_pcm_running(substream))
 			q6asm_read(prtd->audio_client, prtd->stream_id);
 
 		break;

@@ -954,7 +954,8 @@ static int venc_set_properties(struct venus_inst *inst)
 
 	ptype = HFI_PROPERTY_PARAM_VENC_LTRMODE;
 	ltr_mode.ltr_count = ctr->ltr_count;
-	ltr_mode.ltr_mode = HFI_LTR_MODE_MANUAL;
+	ltr_mode.ltr_mode = ctr->ltr_count ? HFI_LTR_MODE_MANUAL :
+					   HFI_LTR_MODE_DISABLE;
 	ltr_mode.trust_mode = 1;
 	ret = hfi_session_set_property(inst, ptype, &ltr_mode);
 	if (ret)

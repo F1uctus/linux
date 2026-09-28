@@ -734,15 +734,18 @@ static int venc_set_properties(struct venus_inst *inst)
 		if (ret)
 			return ret;
 
-		ptype = HFI_PROPERTY_PARAM_VENC_H264_TRANSFORM_8X8;
-		h264_transform.enable_type = 0;
-		if (ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH ||
-		    ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_HIGH)
-			h264_transform.enable_type = ctr->h264_8x8_transform;
+		if (inst->core->res->hfi_version == HFI_VERSION_4XX ||
+		    inst->core->res->hfi_version == HFI_VERSION_6XX) {
+			ptype = HFI_PROPERTY_PARAM_VENC_H264_TRANSFORM_8X8;
+			h264_transform.enable_type = 0;
+			if (ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_HIGH ||
+			    ctr->profile.h264 == V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_HIGH)
+				h264_transform.enable_type = ctr->h264_8x8_transform;
 
-		ret = hfi_session_set_property(inst, ptype, &h264_transform);
-		if (ret)
-			return ret;
+			ret = hfi_session_set_property(inst, ptype, &h264_transform);
+			if (ret)
+				return ret;
+		}
 
 		if (ctr->layer_bitrate) {
 			unsigned int i;

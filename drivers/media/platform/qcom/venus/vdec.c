@@ -599,6 +599,17 @@ unlock:
 	return ret;
 }
 
+static int vdec_create_bufs(struct file *file, void *fh,
+			    struct v4l2_create_buffers *create)
+{
+	struct venus_inst *inst = to_inst(file);
+
+	if (inst->core->res->hfi_version == HFI_VERSION_1XX)
+		return -ENOTTY;
+
+	return v4l2_m2m_ioctl_create_bufs(file, fh, create);
+}
+
 static const struct v4l2_ioctl_ops vdec_ioctl_ops = {
 	.vidioc_querycap = vdec_querycap,
 	.vidioc_enum_fmt_vid_cap = vdec_enum_fmt,
@@ -612,7 +623,7 @@ static const struct v4l2_ioctl_ops vdec_ioctl_ops = {
 	.vidioc_g_selection = vdec_g_selection,
 	.vidioc_reqbufs = v4l2_m2m_ioctl_reqbufs,
 	.vidioc_querybuf = v4l2_m2m_ioctl_querybuf,
-	.vidioc_create_bufs = v4l2_m2m_ioctl_create_bufs,
+	.vidioc_create_bufs = vdec_create_bufs,
 	.vidioc_prepare_buf = v4l2_m2m_ioctl_prepare_buf,
 	.vidioc_qbuf = v4l2_m2m_ioctl_qbuf,
 	.vidioc_expbuf = v4l2_m2m_ioctl_expbuf,
